@@ -94,7 +94,7 @@ def instance_selection_function(cas, *actionness):
 
 
 def instance_selection_function2(cas_r, cas_f, cas_flow, cas_rgb):
-    combine_cas = (0.5*cas_r +0.5*cas_f + cas_flow + cas_rgb)/3
+    combine_cas = (0.5*cas_r + 0.5*cas_f + cas_flow + cas_rgb) / 3
     return combine_cas
 
 

@@ -169,7 +169,7 @@ class ThumosTrainer():
         return torch.cat(cls_agnostic_gt, dim=0)  # B, 1, num_segments
 
 
-    def calculate_all_losses1(self, contrast_pairs, contrast_pairs_r,contrast_pairs_f, cas_top, label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2):
+    def calculate_all_losses1(self, contrast_pairs, contrast_pairs_r, contrast_pairs_f, cas_top, label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2):
         self.contrastive_criterion = ContrastiveLoss()
         loss_contrastive = self.contrastive_criterion(contrast_pairs) + self.contrastive_criterion(contrast_pairs_r) + self.contrastive_criterion(contrast_pairs_f)
 
@@ -177,9 +177,9 @@ class ThumosTrainer():
         class_agnostic_loss = self.Lgce(action_flow.squeeze(1), cls_agnostic_gt.squeeze(1)) + self.Lgce(action_rgb.squeeze(1), cls_agnostic_gt.squeeze(1))
 
         modality_consistent_loss = 0.5 * F.mse_loss(action_flow, action_rgb) + 0.5 * F.mse_loss(action_rgb, action_flow)
-        action_consistent_loss = 0.5 * F.mse_loss(actionness1, actionness2) + 0.5 * F.mse_loss(actionness2, actionness1)
+        action_consistent_loss = 0.1 * F.mse_loss(actionness1, actionness2) + 0.1 * F.mse_loss(actionness2, actionness1)
 
-        cost = base_loss + class_agnostic_loss  + 5*modality_consistent_loss + 0.01*loss_contrastive + 0.1*action_consistent_loss
+        cost = base_loss + class_agnostic_loss + 5 * modality_consistent_loss + 0.01 * loss_contrastive + 0.1 * action_consistent_loss
 
         return cost
 
@@ -203,18 +203,19 @@ class ThumosTrainer():
 
 
     def forward_pass(self, _data):
-        cas, action_flow, action_rgb, contrast_pairs,contrast_pairs_r,contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2 = self.net(_data)
+        cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2 = self.net(_data)
 
-        combined_cas = misc_utils.instance_selection_function(torch.softmax(cas.detach(), -1),
-                                                              action_flow.permute(0, 2, 1).detach(),
-                                                              action_rgb.permute(0, 2, 1))
-
+        # 使用新的 instance_selection_function2 来融合更多分支
+        combined_cas = misc_utils.instance_selection_function2(torch.softmax(cas.detach(), -1),
+                                                           action_flow.permute(0, 2, 1).detach(),
+                                                           action_rgb.permute(0, 2, 1),
+                                                           action_flow.permute(0, 2, 1),  # 示例参数
+                                                           action_rgb.permute(0, 2, 1))  # 根据实际分支调整
 
         _, topk_indices = torch.topk(combined_cas, self.config.num_segments // 8, dim=1)
-        # _, topk_indices1 = torch.topk(combined_cas, r, dim=1)
         cas_top = torch.mean(torch.gather(cas, 1, topk_indices), dim=1)
 
-        return cas_top, topk_indices, action_flow, action_rgb, contrast_pairs,contrast_pairs_r,contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2
+        return cas_top, topk_indices, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2
 
 
     def train(self):
@@ -231,7 +232,7 @@ class ThumosTrainer():
                 self.optimizer.zero_grad()
 
                 # forward pass
-                cas_top, topk_indices, action_flow, action_rgb, contrast_pairs,contrast_pairs_r,contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2 = self.forward_pass(_data)
+                cas_top, topk_indices, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2 = self.forward_pass(_data)
 
                 # calcualte pseudo target
                 cls_agnostic_gt = self.calculate_pesudo_target(batch_size, _label, topk_indices)

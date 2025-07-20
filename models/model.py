@@ -25,8 +25,6 @@ class BaseModel(nn.Module):
         self.action_module_rgb = nn.Sequential(
             nn.Conv1d(in_channels=self.len_feature // 2, out_channels=512, kernel_size=3, padding=1),
             nn.ReLU(),
-            # nn.Dropout(p=0.5),
-            # nn.Conv1d(in_channels=512, out_channels=1, kernel_size=1, padding=0),
         )
 
         self.cls_rgb = nn.Conv1d(in_channels=512, out_channels=1, kernel_size=1, padding=0)
@@ -34,19 +32,30 @@ class BaseModel(nn.Module):
         self.action_module_flow = nn.Sequential(
             nn.Conv1d(in_channels=self.len_feature // 2, out_channels=512, kernel_size=3, padding=1),
             nn.ReLU(),
-            # nn.Dropout(p=0.5),
-            # nn.Conv1d(in_channels=512, out_channels=1, kernel_size=1, padding=0),
         )
 
         self.cls_flow = nn.Conv1d(in_channels=512, out_channels=1, kernel_size=1, padding=0)
+        
+        # 新增两个混合分支
+        self.action_module_mixed1 = nn.Sequential(
+            nn.Conv1d(in_channels=self.len_feature // 2, out_channels=512, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.cls_mixed1 = nn.Conv1d(in_channels=512, out_channels=1, kernel_size=1, padding=0)
+
+        self.action_module_mixed2 = nn.Sequential(
+            nn.Conv1d(in_channels=self.len_feature // 2, out_channels=512, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.cls_mixed2 = nn.Conv1d(in_channels=512, out_channels=1, kernel_size=1, padding=0)
 
         self.dropout = nn.Dropout(p=0.5)  # 0.5
 
-        # 新增门控模块
+        # 修改门控模块为4个通道，对应4个分支
         self.gate_module = nn.Sequential(
             nn.Conv1d(in_channels=self.len_feature, out_channels=512, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv1d(in_channels=512, out_channels=2, kernel_size=1),  # 2个通道分别表示RGB和Flow的权重
+            nn.Conv1d(in_channels=512, out_channels=4, kernel_size=1),  # 4个通道分别表示4个分支的权重
             nn.Softmax(dim=1)  # 沿着通道维度做Softmax，得到权重
         )
 
@@ -57,13 +66,22 @@ class BaseModel(nn.Module):
         emb_flow = self.action_module_flow(input[:, 1024:, :])
         emb_rgb = self.action_module_rgb(input[:, :1024, :])
 
+        # 提取混合分支的特征
+        emb_mixed1 = self.action_module_mixed1(0.25 * input[:, :1024, :] + 0.75 * input[:, 1024:, :])
+        emb_mixed2 = self.action_module_mixed2(0.75 * input[:, :1024, :] + 0.25 * input[:, 1024:, :])
+
         # 获取门控权重
-        gate_weights = self.gate_module(input)  # shape: [B, 2, T]
+        gate_weights = self.gate_module(input)  # shape: [B, 4, T]
         rgb_weight = gate_weights[:, 0:1, :]  # shape: [B, 1, T]
         flow_weight = gate_weights[:, 1:2, :]  # shape: [B, 1, T]
+        mixed1_weight = gate_weights[:, 2:3, :]  # shape: [B, 1, T]
+        mixed2_weight = gate_weights[:, 3:4, :]  # shape: [B, 1, T]
 
-        # 对RGB和Flow特征加权融合
-        emb = rgb_weight * emb_rgb + flow_weight * emb_flow
+        # 对4个分支进行加权融合
+        emb = (rgb_weight * emb_rgb +
+               flow_weight * emb_flow +
+               mixed1_weight * emb_mixed1 +
+               mixed2_weight * emb_mixed2)
 
         embedding_flow = emb_flow.permute(0, 2, 1)
         embedding_rgb = emb_rgb.permute(0, 2, 1)
@@ -74,14 +92,18 @@ class BaseModel(nn.Module):
         actionness1 = cas.sum(dim=2)
         actionness1 = torch.sigmoid(actionness1)
 
-        # 单独计算RGB和Flow的动作性
+        # 单独计算各分支的动作性
         action_flow = torch.sigmoid(self.cls_flow(emb_flow))
         action_rgb = torch.sigmoid(self.cls_rgb(emb_rgb))
+        action_mixed1 = torch.sigmoid(self.cls_mixed1(emb_mixed1))
+        action_mixed2 = torch.sigmoid(self.cls_mixed2(emb_mixed2))
 
         action_flow = action_flow.squeeze(1)
         action_rgb = action_rgb.squeeze(1)
+        action_mixed1 = action_mixed1.squeeze(1)
+        action_mixed2 = action_mixed2.squeeze(1)
 
-        actionness2 = (action_flow + action_rgb) / 2
+        actionness2 = (action_flow + action_rgb + action_mixed1 + action_mixed2) / 4
 
         return cas, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb
 

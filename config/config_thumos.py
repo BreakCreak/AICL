@@ -23,6 +23,10 @@ def parse_args():
     # model parameters
     parser.add_argument('--model_name', required=True, type=str, help="Which model to use")
 
+    # 新增混合分支的融合系数
+    parser.add_argument('--mix_ratio1', type=float, default=0.25, help="Mix ratio for RGB+FLOW branch")
+    parser.add_argument('--mix_ratio2', type=float, default=0.75, help="Mix ratio for FLOW+RGB branch")
+
     # training parameters
     parser.add_argument('--lr', type=float, default=0.0001, help='learning rates for steps(list form)')
     parser.add_argument('--batch_size', type=int, default=16)
