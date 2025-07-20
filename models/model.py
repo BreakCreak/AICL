@@ -78,10 +78,10 @@ class BaseModel(nn.Module):
         mixed2_weight = gate_weights[:, 3:4, :]  # shape: [B, 1, T]
 
         # 对4个分支进行加权融合
-        emb = (rgb_weight * emb_rgb +
-               flow_weight * emb_flow +
-               mixed1_weight * emb_mixed1 +
-               mixed2_weight * emb_mixed2)
+        emb = (0.5 * rgb_weight * emb_rgb +
+               0.5 * flow_weight * emb_flow +
+               0.75 * mixed1_weight * emb_mixed1 +
+               0.25 * mixed2_weight * emb_mixed2)
 
         embedding_flow = emb_flow.permute(0, 2, 1)
         embedding_rgb = emb_rgb.permute(0, 2, 1)
