@@ -212,8 +212,8 @@ class ThumosTrainer():
         # 使用新的 instance_selection_function2 来融合更多分支
         combined_cas = misc_utils.instance_selection_function2(torch.softmax(cas.detach(), -1),
                                                            action_flow.permute(0, 2, 1).detach(),
-                                                           action_rgb.permute(0, 2, 1),
-                                                           action_flow.permute(0, 2, 1))  # 根据实际分支调整
+                                                           action_flow.permute(0, 2, 1),
+                                                           action_rgb.permute(0, 2, 1))
 
         _, topk_indices = torch.topk(combined_cas, self.config.num_segments // 8, dim=1)
         cas_top = torch.mean(torch.gather(cas, 1, topk_indices), dim=1)

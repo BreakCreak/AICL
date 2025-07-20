@@ -46,10 +46,10 @@ def inference(net, config, test_loader, model_file=None):
             cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2 = net(_data)
 
             # 使用新的 instance_selection_function2 来融合更多分支
-            combined_cas = misc_utils.instance_selection_function2(torch.softmax(cas.detach(), -1),
-                                                                 action_flow.permute(0, 2, 1).detach(),
-                                                                 action_flow.permute(0, 2, 1),  # 示例参数
-                                                                 action_rgb.permute(0, 2, 1))  # 根据实际分支调整
+            combined_cas = misc_utils.instance_selection_function2(torch.softmax(cas.detach(), -1),  # cas_r
+                                                                  action_flow.permute(0, 2, 1).detach(),  # cas_f
+                                                                  action_flow.permute(0, 2, 1),  # cas_flow
+                                                                  action_rgb.permute(0, 2, 1))  # cas_rgb
 
             _, topk_indices = torch.topk(combined_cas, config.num_segments // 8, dim=1)
 
