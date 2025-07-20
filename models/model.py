@@ -34,7 +34,7 @@ class BaseModel(nn.Module):
             nn.ReLU(),
         )
 
-        self.cls_flow = nn.Conv1d(in_channels=512, out_channels=1, kernel_size=1, padding=0)
+        self.cls_flow = nn.Conv1d(in_channels=512, out_channels=1, kernel_size=0, padding=0)
         
         # 新增两个混合分支
         self.action_module_mixed1 = nn.Sequential(
