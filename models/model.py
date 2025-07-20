@@ -42,29 +42,46 @@ class BaseModel(nn.Module):
 
         self.dropout = nn.Dropout(p=0.5)  # 0.5
 
+        # 新增门控模块
+        self.gate_module = nn.Sequential(
+            nn.Conv1d(in_channels=self.len_feature, out_channels=512, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(in_channels=512, out_channels=2, kernel_size=1),  # 2个通道分别表示RGB和Flow的权重
+            nn.Softmax(dim=1)  # 沿着通道维度做Softmax，得到权重
+        )
 
     def forward(self, x):
         input = x.permute(0, 2, 1)
 
-
+        # 提取RGB和Flow的特征
         emb_flow = self.action_module_flow(input[:, 1024:, :])
         emb_rgb = self.action_module_rgb(input[:, :1024, :])
 
+        # 获取门控权重
+        gate_weights = self.gate_module(input)  # shape: [B, 2, T]
+        rgb_weight = gate_weights[:, 0:1, :]  # shape: [B, 1, T]
+        flow_weight = gate_weights[:, 1:2, :]  # shape: [B, 1, T]
+
+        # 对RGB和Flow特征加权融合
+        emb = rgb_weight * emb_rgb + flow_weight * emb_flow
+
         embedding_flow = emb_flow.permute(0, 2, 1)
         embedding_rgb = emb_rgb.permute(0, 2, 1)
-
-        action_flow = torch.sigmoid(self.cls_flow(emb_flow))
-        action_rgb = torch.sigmoid(self.cls_rgb(emb_rgb))
-
-        emb = self.base_module(input)
         embedding = emb.permute(0, 2, 1)
-        # emb = self.dropout(emb)
+
+        # 分类输出
         cas = self.cls(emb).permute(0, 2, 1)
         actionness1 = cas.sum(dim=2)
         actionness1 = torch.sigmoid(actionness1)
 
-        actionness2 = (action_flow + action_rgb)/2
-        actionness2 = actionness2.squeeze(1)
+        # 单独计算RGB和Flow的动作性
+        action_flow = torch.sigmoid(self.cls_flow(emb_flow))
+        action_rgb = torch.sigmoid(self.cls_rgb(emb_rgb))
+
+        action_flow = action_flow.squeeze(1)
+        action_rgb = action_rgb.squeeze(1)
+
+        actionness2 = (action_flow + action_rgb) / 2
 
         return cas, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb
 
