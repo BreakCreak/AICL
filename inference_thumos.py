@@ -47,9 +47,9 @@ def inference(net, config, test_loader, model_file=None):
 
             # 使用新的 instance_selection_function2 来融合更多分支
             combined_cas = misc_utils.instance_selection_function2(torch.softmax(cas.detach(), -1),  # cas_r
-                                                                  action_flow.permute(0, 2, 1).detach(),  # cas_f
-                                                                  action_flow.permute(0, 2, 1),  # cas_flow
-                                                                  action_rgb.permute(0, 2, 1))  # cas_rgb
+                                                      action_flow.unsqueeze(1).permute(0, 2, 1).detach(),  # cas_f
+                                                      action_flow.unsqueeze(1).permute(0, 2, 1),  # cas_flow
+                                                      action_rgb.unsqueeze(1).permute(0, 2, 1))  # cas_rgb
 
             _, topk_indices = torch.topk(combined_cas, config.num_segments // 8, dim=1)
 
