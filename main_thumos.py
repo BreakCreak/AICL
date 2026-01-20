@@ -85,7 +85,7 @@ class ContrastiveLoss(nn.Module):
         l_neg = torch.einsum('nc,nck->nk', [q, neg])
         logits = torch.cat([l_pos, l_neg], dim=1)
         logits /= T
-        labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
+        labels = torch.zeros(logits.shape[0], dtype=torch.long).to(logits.device)
         loss = self.ce_criterion(logits, labels)
 
         return loss
@@ -179,7 +179,8 @@ class ThumosTrainer():
         modality_consistent_loss = 0.5 * F.mse_loss(action_flow, action_rgb) + 0.5 * F.mse_loss(action_rgb, action_flow)
         action_consistent_loss = 0.1 * F.mse_loss(actionness1, actionness2) + 0.1 * F.mse_loss(actionness2, actionness1)
 
-        cost = base_loss + class_agnostic_loss + 5 * modality_consistent_loss + 0.01 * loss_contrastive + 0.1 * action_consistent_loss
+        # 提高高IoU阈值下的性能，增加对比损失权重和模态一致性损失
+        cost = base_loss + class_agnostic_loss + 3 * modality_consistent_loss + 0.05 * loss_contrastive + 0.15 * action_consistent_loss
 
         return cost
 
@@ -231,7 +232,7 @@ class ThumosTrainer():
             for _data, _label, temp_anno, _, _ in self.train_loader:
 
                 batch_size = _data.shape[0]
-                _data, _label = _data.cuda(), _label.cuda()
+                _data, _label = _data.to(self.device), _label.to(self.device)
                 self.optimizer.zero_grad()
 
                 # forward pass
