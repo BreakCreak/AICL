@@ -127,7 +127,9 @@ class ThumosTrainer():
 
         # network
         self.net = AICL(config)
-        self.net = self.net.cuda()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+        self.net = self.net.to(self.device)
 
         # data
         self.train_loader, self.test_loader = get_dataloaders(self.config)
@@ -159,7 +161,7 @@ class ThumosTrainer():
         for b in range(batch_size):
             label_indices_b = torch.nonzero(label[b, :])[:,0]
             topk_indices_b = topk_indices[b, :, label_indices_b] # topk, num_actions
-            cls_agnostic_gt_b = torch.zeros((1, 1, self.config.num_segments)).cuda()
+            cls_agnostic_gt_b = torch.zeros((1, 1, self.config.num_segments)).to(label.device)
 
             # positive examples
             for gt_i in range(len(label_indices_b)):
