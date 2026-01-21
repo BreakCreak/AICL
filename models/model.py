@@ -162,16 +162,18 @@ class AICL(nn.Module):
         return selected_embeddings
 
     def consistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness, embeddings, k_easy):
-
-        x = aness_bin1 + aness_bin2
-        select_idx_act = actionness.new_tensor(np.where(x == 2, 1, 0))
+        # 确保 numpy 数组转换为正确的 torch 张量并移动到正确设备
+        device = actionness.device
+        x = torch.from_numpy(aness_bin1).to(device) + torch.from_numpy(aness_bin2).to(device)
+        
+        select_idx_act = torch.from_numpy(np.where(x.cpu().numpy() == 2, 1, 0)).float().to(device)
         # print(torch.min(torch.sum(select_idx_act, dim=-1)))
 
         # 引入actionness gating: pos = consistent_snippets & (actionness > 0.6)
         actionness_gate = (actionness > 0.6).float()
         actionness_act = actionness * select_idx_act * actionness_gate
 
-        select_idx_bg = actionness.new_tensor(np.where(x == 0, 1, 0))
+        select_idx_bg = torch.from_numpy(np.where(x.cpu().numpy() == 0, 1, 0)).float().to(device)
 
         actionness_rev = torch.max(actionness, dim=1, keepdim=True)[0] - actionness
         # 引入actionness gating: neg = inconsistent_snippets | (actionness < 0.2)
@@ -185,9 +187,11 @@ class AICL(nn.Module):
         return easy_act, easy_bkg
 
     def Inconsistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness, embeddings, k_hard):
-
-        x = aness_bin1 + aness_bin2
-        idx_region_inner = actionness.new_tensor(np.where(x == 1, 1, 0))
+        # 确保 numpy 数组转换为正确的 torch 张量并移动到正确设备
+        device = actionness.device
+        x = torch.from_numpy(aness_bin1).to(device) + torch.from_numpy(aness_bin2).to(device)
+        
+        idx_region_inner = torch.from_numpy(np.where(x.cpu().numpy() == 1, 1, 0)).float().to(device)
         # 引入actionness gating
         actionness_gate = (actionness > 0.6).float()
         aness_region_inner = actionness * idx_region_inner * actionness_gate
