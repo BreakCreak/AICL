@@ -102,8 +102,8 @@ class BaseModel(nn.Module):
                0.25 * mixed2_weight * emb_mixed2)
 
         # 多尺度时间卷积
-        feat_t = emb.transpose(1, 2)  # [B, D, T]
-        feat_ms = torch.cat([conv(feat_t) for conv in self.temporal_convs], dim=1)
+        feat_t = emb.transpose(1, 2)  # [B, D, T] -> [B, T, D]
+        feat_ms = torch.cat([conv(feat_t) for conv in self.temporal_convs], dim=1)  # [B, D_out*3, T]
         feat_reduced = self.reduce_dim(feat_ms)  # [B, D, T]
         emb_enhanced = feat_reduced.transpose(1, 2)  # [B, T, D]
 
@@ -159,18 +159,22 @@ class AICL(nn.Module):
         selected_embeddings = torch.gather(embeddings, 1, idx_topk)
         return selected_embeddings
 
-    def consistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness1, embeddings, k_easy):
+    def consistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness, embeddings, k_easy):
 
         x = aness_bin1 + aness_bin2
-        select_idx_act = actionness1.new_tensor(np.where(x == 2, 1, 0))
+        select_idx_act = actionness.new_tensor(np.where(x == 2, 1, 0))
         # print(torch.min(torch.sum(select_idx_act, dim=-1)))
 
-        actionness_act = actionness1 * select_idx_act
+        # 引入actionness gating: pos = consistent_snippets & (actionness > 0.6)
+        actionness_gate = (actionness > 0.6).float()
+        actionness_act = actionness * select_idx_act * actionness_gate
 
-        select_idx_bg = actionness1.new_tensor(np.where(x == 0, 1, 0))
+        select_idx_bg = actionness.new_tensor(np.where(x == 0, 1, 0))
 
-        actionness_rev = torch.max(actionness1, dim=1, keepdim=True)[0] - actionness1
-        actionness_bg = actionness_rev * select_idx_bg
+        actionness_rev = torch.max(actionness, dim=1, keepdim=True)[0] - actionness
+        # 引入actionness gating: neg = inconsistent_snippets | (actionness < 0.2)
+        bg_actionness_gate = (actionness < 0.2).float()
+        actionness_bg = actionness_rev * select_idx_bg + bg_actionness_gate * select_idx_bg
 
         easy_act = self.select_topk_embeddings(actionness_act, embeddings, k_easy)
         easy_bkg = self.select_topk_embeddings(actionness_bg, embeddings, k_easy)
