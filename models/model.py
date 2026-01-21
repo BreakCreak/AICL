@@ -130,8 +130,8 @@ class BaseModel(nn.Module):
         actionness2 = (action_flow + action_rgb + action_mixed1 + action_mixed2) / 4
         
         # 计算actionness
-        emb_t = emb.transpose(1, 2)  # [B, D, T]
-        actionness = self.actionness_head(emb_t).squeeze(1)  # [B, T]
+        # emb的形状为[B, D, T]，符合卷积层的输入要求
+        actionness = self.actionness_head(emb).squeeze(1)  # [B, T]
 
         return cas, actionness, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb
 
