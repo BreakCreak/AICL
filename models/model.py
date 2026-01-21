@@ -114,6 +114,9 @@ class AICL(nn.Module):
         B, T, D = embeddings.shape
         device = embeddings.device
 
+        # 确保scores中没有NaN或inf值
+        scores = torch.nan_to_num(scores, nan=0.0, posinf=1e5, neginf=-1e5)
+        
         # 根据经验教训，对k值进行边界检查，确保k不超过张量对应维度的实际大小
         actual_k = min(k, T)
         if actual_k <= 0:
@@ -135,12 +138,12 @@ class AICL(nn.Module):
         final_indices = torch.zeros((B, actual_k), dtype=torch.long, device=device)
         
         for b in range(B):
-            # 获取top-k的索引
-            top_k_indices_b = sorted_indices[b, :k_top]
+            # 确保索引在有效范围内
+            valid_sorted_indices = torch.clamp(sorted_indices[b, :k_top], 0, T-1)
             
             # 获取随机k的索引，确保不与top-k重复
             available_indices = []
-            selected_set = set(sorted_indices[b, :k_top].cpu().numpy())
+            selected_set = set(valid_sorted_indices.cpu().numpy())
             for i in range(T):
                 if i not in selected_set:
                     available_indices.append(i)
@@ -157,7 +160,7 @@ class AICL(nn.Module):
                     random_indices_b = torch.tensor(selected_random, dtype=torch.long, device=device)
             
             # 组合top-k和随机索引
-            combined_indices = torch.cat([top_k_indices_b, random_indices_b])
+            combined_indices = torch.cat([valid_sorted_indices, random_indices_b])
             
             # 确保总长度不超过actual_k
             if combined_indices.size(0) > actual_k:
@@ -167,6 +170,9 @@ class AICL(nn.Module):
                 if combined_indices.size(0) > 0:
                     padding = combined_indices[0].repeat(actual_k - combined_indices.size(0))
                     combined_indices = torch.cat([combined_indices, padding])
+            
+            # 再次确保所有索引在有效范围内
+            combined_indices = torch.clamp(combined_indices, 0, T-1)
             
             # 存储到最终索引张量
             final_indices[b] = combined_indices
