@@ -74,7 +74,7 @@ def inference(net, config, test_loader, model_file=None):
             num_correct += np.sum((correct_pred == config.num_classes).astype(np.float32))
             num_total += correct_pred.shape[0]
 
-            pred = np.where(score_np > config.class_thresh)[0]
+            pred = np.where(score_np > 0.2)[0]  # 使用固定阈值0.2
 
             # action prediction
             if len(pred) != 0:
@@ -98,7 +98,7 @@ def inference(net, config, test_loader, model_file=None):
 
                     proposals = misc_utils.get_proposal_oic(seg_list, cas_pred.copy(), score_supp[0, :].cpu().data.numpy(),
                                                             pred, config.scale, vid_num_seg[0].cpu().item(), config.feature_fps,
-                                                            config.num_segments, config.gamma, expand_ratio=config.expand_ratio)
+                                                            config.num_segments, config.gamma)
 
                     for j in range(len(proposals)):
                         if not proposals[j]:
