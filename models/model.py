@@ -164,20 +164,42 @@ class AICL(nn.Module):
     def consistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness, embeddings, k_easy):
         # 确保 numpy 数组转换为正确的 torch 张量并移动到正确设备
         device = actionness.device
-        x = torch.from_numpy(aness_bin1).to(device) + torch.from_numpy(aness_bin2).to(device)
         
-        select_idx_act = torch.from_numpy(np.where(x.cpu().numpy() == 2, 1, 0)).float().to(device)
+        # 将 numpy 数组转换为 torch 张量，并确保形状和设备正确
+        aness_bin1_tensor = torch.from_numpy(aness_bin1.astype(np.float32)).to(device)
+        aness_bin2_tensor = torch.from_numpy(aness_bin2.astype(np.float32)).to(device)
+        
+        x = aness_bin1_tensor + aness_bin2_tensor
+        
+        # 确保 x 的形状与 actionness 匹配
+        if x.shape != actionness.shape:
+            # 如果形状不匹配，调整 x 的形状
+            if len(x.shape) == len(actionness.shape) and x.shape[0] == actionness.shape[0]:
+                # 扩展较小的维度以匹配
+                min_time_steps = min(x.shape[1], actionness.shape[1])
+                x = x[:, :min_time_steps]
+                actionness_for_use = actionness[:, :min_time_steps]
+            else:
+                # 默认使用 actionness 的形状
+                actionness_shape = actionness.shape
+                if len(actionness_shape) == 2:
+                    x = x[:actionness_shape[0], :actionness_shape[1]]
+                    actionness_for_use = actionness
+        else:
+            actionness_for_use = actionness
+        
+        select_idx_act = (x == 2).float()
         # print(torch.min(torch.sum(select_idx_act, dim=-1)))
 
         # 引入actionness gating: pos = consistent_snippets & (actionness > 0.6)
-        actionness_gate = (actionness > 0.6).float()
-        actionness_act = actionness * select_idx_act * actionness_gate
+        actionness_gate = (actionness_for_use > 0.6).float()
+        actionness_act = actionness_for_use * select_idx_act * actionness_gate
 
-        select_idx_bg = torch.from_numpy(np.where(x.cpu().numpy() == 0, 1, 0)).float().to(device)
+        select_idx_bg = (x == 0).float()
 
-        actionness_rev = torch.max(actionness, dim=1, keepdim=True)[0] - actionness
+        actionness_rev = torch.max(actionness_for_use, dim=1, keepdim=True)[0] - actionness_for_use
         # 引入actionness gating: neg = inconsistent_snippets | (actionness < 0.2)
-        bg_actionness_gate = (actionness < 0.2).float()
+        bg_actionness_gate = (actionness_for_use < 0.2).float()
         actionness_bg = actionness_rev * select_idx_bg + bg_actionness_gate * select_idx_bg
 
         easy_act = self.select_topk_embeddings(actionness_act, embeddings, k_easy)
@@ -189,17 +211,40 @@ class AICL(nn.Module):
     def Inconsistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness, embeddings, k_hard):
         # 确保 numpy 数组转换为正确的 torch 张量并移动到正确设备
         device = actionness.device
-        x = torch.from_numpy(aness_bin1).to(device) + torch.from_numpy(aness_bin2).to(device)
         
-        idx_region_inner = torch.from_numpy(np.where(x.cpu().numpy() == 1, 1, 0)).float().to(device)
+        # 将 numpy 数组转换为 torch 张量，并确保形状和设备正确
+        aness_bin1_tensor = torch.from_numpy(aness_bin1.astype(np.float32)).to(device)
+        aness_bin2_tensor = torch.from_numpy(aness_bin2.astype(np.float32)).to(device)
+        
+        x = aness_bin1_tensor + aness_bin2_tensor
+        
+        # 确保 x 的形状与 actionness 匹配
+        if x.shape != actionness.shape:
+            # 如果形状不匹配，调整 x 的形状
+            if len(x.shape) == len(actionness.shape) and x.shape[0] == actionness.shape[0]:
+                # 扩展较小的维度以匹配
+                min_time_steps = min(x.shape[1], actionness.shape[1])
+                x = x[:, :min_time_steps]
+                actionness_for_use = actionness[:, :min_time_steps]
+            else:
+                # 默认使用 actionness 的形状
+                actionness_shape = actionness.shape
+                if len(actionness_shape) == 2:
+                    x = x[:actionness_shape[0], :actionness_shape[1]]
+                    actionness_for_use = actionness
+        else:
+            actionness_for_use = actionness
+            
+        idx_region_inner = (x == 1).float()
+        
         # 引入actionness gating
-        actionness_gate = (actionness > 0.6).float()
-        aness_region_inner = actionness * idx_region_inner * actionness_gate
+        actionness_gate = (actionness_for_use > 0.6).float()
+        aness_region_inner = actionness_for_use * idx_region_inner * actionness_gate
         hard_act = self.select_topk_embeddings(aness_region_inner, embeddings, k_hard)
 
-        actionness_rev = torch.max(actionness, dim=1, keepdim=True)[0] - actionness
+        actionness_rev = torch.max(actionness_for_use, dim=1, keepdim=True)[0] - actionness_for_use
         # 引入actionness gating
-        bg_actionness_gate = (actionness < 0.2).float()
+        bg_actionness_gate = (actionness_for_use < 0.2).float()
         aness_region_outer = actionness_rev * idx_region_inner + bg_actionness_gate * idx_region_inner
         hard_bkg = self.select_topk_embeddings(aness_region_outer, embeddings, k_hard)
 
