@@ -41,7 +41,7 @@ def parse_args():
     parser.add_argument('--gamma', type=float, default=0.2, help='Gamma for oic class confidence')
     parser.add_argument('--soft_nms', default=False, action='store_true')
     parser.add_argument('--nms_alpha', default=0.35, type=float)
-    parser.add_argument('--nms_thresh', default=0.6, type=float)
+    parser.add_argument('--nms_thresh', default=0.3, type=float)
     parser.add_argument('--load_weight', default=False, action='store_true')
     
     # system parameters
