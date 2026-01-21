@@ -204,7 +204,7 @@ class AICL(nn.Module):
         k_C = num_segments // self.r_C
         k_I = num_segments // self.r_I
 
-        cas, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb = self.actionness_module(x)
+        cas, actionness, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb = self.actionness_module(x)
 
         aness_np1 = actionness1.cpu().detach().numpy()
         aness_median1 = np.median(aness_np1, 1, keepdims=True)
