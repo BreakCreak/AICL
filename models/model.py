@@ -101,15 +101,15 @@ class AICL(nn.Module):
         self.dropout = nn.Dropout(0.6)
 
     def select_topk_embeddings(self, scores, embeddings, k, retain_random=0.2):
-        """ 
-        scores: [B, T] 
-        embeddings: [B, T, D] 
-        k: topk number 
-        retain_random: 保留低分片段比例 
+        """
+        scores: [B, T]
+        embeddings: [B, T, D]
+        k: topk number
+        retain_random: 保留低分片段比例
         """
         B, T, D = embeddings.shape
         device = embeddings.device
-        
+
         # 排序
         _, idx_DESC = scores.sort(descending=True, dim=1)
         k_top = int(k * (1 - retain_random))
@@ -137,22 +137,17 @@ class AICL(nn.Module):
     def inconsistency_snippets_mining(self, aness_bin1, aness_bin2, actionness, embeddings, k_hard):
         x = aness_bin1 + aness_bin2
         idx_region_inner = actionness.new_tensor(np.where(x == 1, 1, 0))
-        
-        # 软门控 instead of hard 0.6 threshold
-        gate_center = 0.4
-        gate_scale = 5.0
-        actionness_gate = torch.sigmoid((actionness - gate_center) * gate_scale)
+        # 引入actionness gating
+        actionness_gate = (actionness > 0.6).float()
         aness_region_inner = actionness * idx_region_inner * actionness_gate
-        
-        hard_act = self.select_topk_embeddings(aness_region_inner, embeddings, k_hard, retain_random=0.2)
-        
-        # 背景片段也软化
+        hard_act = self.select_topk_embeddings(aness_region_inner, embeddings, k_hard)
+
         actionness_rev = torch.max(actionness, dim=1, keepdim=True)[0] - actionness
-        bg_gate = torch.sigmoid((0.3 - actionness) * 5)  # soft gate
-        aness_region_outer = actionness_rev * idx_region_inner + bg_gate * idx_region_inner
-        
-        hard_bkg = self.select_topk_embeddings(aness_region_outer, embeddings, k_hard, retain_random=0.2)
-        
+        # 引入actionness gating
+        bg_actionness_gate = (actionness < 0.2).float()
+        aness_region_outer = actionness_rev * idx_region_inner + bg_actionness_gate * idx_region_inner
+        hard_bkg = self.select_topk_embeddings(aness_region_outer, embeddings, k_hard)
+
         return hard_act, hard_bkg
 
     def forward(self, x):
@@ -182,4 +177,4 @@ class AICL(nn.Module):
         contrast_pairs_r = {'CA': CAr,'CB': CBr,'IA': IAr,'IB': IBr}
         contrast_pairs_f = {'CA': CAf,'CB': CBf,'IA': IAf,'IB': IBf}
 
-        return cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2
+        return cas, action_flow, action_rgb, contrast_pairs,contrast_pairs_r,contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2
