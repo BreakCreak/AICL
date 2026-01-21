@@ -131,14 +131,14 @@ class AICL(nn.Module):
         # 对scores进行排序获取top-k索引
         _, sorted_indices = scores.sort(descending=True, dim=1)
         
-        # 获取top-k的索引
-        top_k_indices = sorted_indices[:, :k_top]
-        
-        # 获取随机k的索引，确保不与top-k重复
-        final_indices = top_k_indices.clone()
+        # 构造最终索引张量，预先分配正确大小
+        final_indices = torch.zeros((B, actual_k), dtype=torch.long, device=device)
         
         for b in range(B):
-            # 获取尚未选择的索引
+            # 获取top-k的索引
+            top_k_indices_b = sorted_indices[b, :k_top]
+            
+            # 获取随机k的索引，确保不与top-k重复
             available_indices = []
             selected_set = set(sorted_indices[b, :k_top].cpu().numpy())
             for i in range(T):
@@ -146,6 +146,7 @@ class AICL(nn.Module):
                     available_indices.append(i)
             
             # 从可用索引中随机选择
+            random_indices_b = torch.empty(0, dtype=torch.long, device=device)
             if len(available_indices) > 0 and k_rand > 0:
                 selected_random = np.random.choice(
                     available_indices, 
@@ -153,20 +154,22 @@ class AICL(nn.Module):
                     replace=False
                 )
                 if len(selected_random) > 0:
-                    random_indices = torch.tensor(selected_random, dtype=torch.long, device=device)
-                    final_indices_b = torch.cat([top_k_indices[b], random_indices])
-                    final_indices[b] = final_indices_b[:actual_k]  # 确保总数不超过actual_k
-            else:
-                # 如果没有足够的可用索引，就截取或填充
-                if final_indices[b].size(0) < actual_k:
-                    # 用已有的索引填充（虽然不太理想，但保证形状正确）
-                    needed = actual_k - final_indices[b].size(0)
-                    if final_indices[b].size(0) > 0:
-                        extra_indices = final_indices[b][:needed] if needed <= final_indices[b].size(0) else final_indices[b].repeat(((needed + final_indices[b].size(0) - 1) // final_indices[b].size(0),))[:needed]
-                        final_indices[b] = torch.cat([final_indices[b], extra_indices])
-        
-        # 确保索引数量正确
-        final_indices = final_indices[:, :actual_k]
+                    random_indices_b = torch.tensor(selected_random, dtype=torch.long, device=device)
+            
+            # 组合top-k和随机索引
+            combined_indices = torch.cat([top_k_indices_b, random_indices_b])
+            
+            # 确保总长度不超过actual_k
+            if combined_indices.size(0) > actual_k:
+                combined_indices = combined_indices[:actual_k]
+            elif combined_indices.size(0) < actual_k:
+                # 如果不够，用第一个索引填充（这种情况理论上不应该发生，但为了安全性）
+                if combined_indices.size(0) > 0:
+                    padding = combined_indices[0].repeat(actual_k - combined_indices.size(0))
+                    combined_indices = torch.cat([combined_indices, padding])
+            
+            # 存储到最终索引张量
+            final_indices[b] = combined_indices
 
         # 使用gather操作提取对应的embeddings
         expanded_indices = final_indices.unsqueeze(-1).expand(-1, -1, D)
