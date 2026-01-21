@@ -51,6 +51,21 @@ class BaseModel(nn.Module):
 
         self.dropout = nn.Dropout(p=0.5)  # 0.5
 
+        # 多尺度时间卷积
+        self.temporal_convs = nn.ModuleList([
+            nn.Conv1d(512, 512, 3, padding=1),
+            nn.Conv1d(512, 512, 5, padding=2),
+            nn.Conv1d(512, 512, 7, padding=3)
+        ])
+        
+        # Actionness Head
+        self.actionness_head = nn.Sequential(
+            nn.Conv1d(512, 256, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(256, 1, 1),
+            nn.Sigmoid()
+        )
+
         # 修改门控模块为4个通道，对应4个分支
         self.gate_module = nn.Sequential(
             nn.Conv1d(in_channels=self.len_feature, out_channels=512, kernel_size=3, padding=1),
@@ -150,15 +165,19 @@ class AICL(nn.Module):
 
         return easy_act, easy_bkg
 
-    def Inconsistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness1, embeddings, k_hard):
+    def Inconsistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness, embeddings, k_hard):
 
         x = aness_bin1 + aness_bin2
-        idx_region_inner = actionness1.new_tensor(np.where(x == 1, 1, 0))
-        aness_region_inner = actionness1 * idx_region_inner
+        idx_region_inner = actionness.new_tensor(np.where(x == 1, 1, 0))
+        # 引入actionness gating
+        actionness_gate = (actionness > 0.6).float()
+        aness_region_inner = actionness * idx_region_inner * actionness_gate
         hard_act = self.select_topk_embeddings(aness_region_inner, embeddings, k_hard)
 
-        actionness_rev = torch.max(actionness1, dim=1, keepdim=True)[0] - actionness1
-        aness_region_outer = actionness_rev * idx_region_inner
+        actionness_rev = torch.max(actionness, dim=1, keepdim=True)[0] - actionness
+        # 引入actionness gating
+        bg_actionness_gate = (actionness < 0.2).float()
+        aness_region_outer = actionness_rev * idx_region_inner + bg_actionness_gate * idx_region_inner
         hard_bkg = self.select_topk_embeddings(aness_region_outer, embeddings, k_hard)
 
         return hard_act, hard_bkg

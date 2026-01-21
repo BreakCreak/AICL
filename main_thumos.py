@@ -230,6 +230,8 @@ class ThumosTrainer():
 
         # training
         for epoch in range(self.config.num_epochs):
+            # 动态一致性阈值
+            consistency_thresh = min(0.9, 0.5 + epoch * 0.01)
 
             for _data, _label, temp_anno, _, _ in self.train_loader:
 
