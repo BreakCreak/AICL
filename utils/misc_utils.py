@@ -94,8 +94,9 @@ def instance_selection_function(cas, *actionness):
 
 
 def instance_selection_function2(cas_r, cas_f, cas_flow, cas_rgb):
-    # 改进的融合策略，更好地平衡各个分支
-    combine_cas = (0.4*cas_r + 0.4*cas_f + 0.6*cas_flow + 0.6*cas_rgb) / 2.0
+    # 进一步优化的融合策略，特别关注高IoU阈值下的性能
+    # 增强对动作边界精确定位的支持
+    combine_cas = (0.35*cas_r + 0.35*cas_f + 0.65*cas_flow + 0.65*cas_rgb) / 2.0
     return combine_cas
 
 
