@@ -102,10 +102,10 @@ class BaseModel(nn.Module):
                0.25 * mixed2_weight * emb_mixed2)
 
         # 多尺度时间卷积
-        feat_t = emb.transpose(1, 2)  # [B, D, T] -> [B, T, D]
-        feat_ms = torch.cat([conv(feat_t) for conv in self.temporal_convs], dim=1)  # [B, D_out*3, T]
-        feat_reduced = self.reduce_dim(feat_ms)  # [B, D, T]
-        emb_enhanced = feat_reduced.transpose(1, 2)  # [B, T, D]
+        # 注意：emb 的原始形状是 [B, D, T]，其中 D 是特征维度，T 是时间步数
+        # 卷积层期望输入格式为 [B, Channels, Length]，所以 emb 已经符合这个格式
+        feat_ms = torch.cat([conv(emb) for conv in self.temporal_convs], dim=1)  # [B, D_out*3, T]
+        emb_enhanced = self.reduce_dim(feat_ms)  # [B, D, T]
 
         embedding_flow = emb_flow.permute(0, 2, 1)
         embedding_rgb = emb_rgb.permute(0, 2, 1)
