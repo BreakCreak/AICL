@@ -114,19 +114,64 @@ class AICL(nn.Module):
         B, T, D = embeddings.shape
         device = embeddings.device
 
-        # 排序
-        _, idx_DESC = scores.sort(descending=True, dim=1)
-        k_top = int(k * (1 - retain_random))
-        k_rand = k - k_top
+        # 根据经验教训，对k值进行边界检查，确保k不超过张量对应维度的实际大小
+        actual_k = min(k, T)
+        if actual_k <= 0:
+            # 如果实际k为0或负数，返回空张量
+            return embeddings.new_empty((B, 0, D))
 
-        idx_topk = idx_DESC[:, :k_top]  # top-k
-        if k_rand > 0:
-            rand_idx = torch.randint(0, T, (B, k_rand), device=device)
-            idx_topk = torch.cat([idx_topk, rand_idx], dim=1)
+        # 计算top-k和随机k的数量
+        k_top = int(actual_k * (1 - retain_random))
+        k_rand = actual_k - k_top
 
-        # gather
-        idx_topk = idx_topk.unsqueeze(2).expand([-1, -1, D])
-        selected_embeddings = torch.gather(embeddings, 1, idx_topk)
+        # 确保k_top和k_rand不为负数
+        k_top = max(0, min(k_top, actual_k))
+        k_rand = max(0, min(k_rand, actual_k - k_top))
+
+        # 对scores进行排序获取top-k索引
+        _, sorted_indices = scores.sort(descending=True, dim=1)
+        
+        # 获取top-k的索引
+        top_k_indices = sorted_indices[:, :k_top]
+        
+        # 获取随机k的索引，确保不与top-k重复
+        final_indices = top_k_indices.clone()
+        
+        for b in range(B):
+            # 获取尚未选择的索引
+            available_indices = []
+            selected_set = set(sorted_indices[b, :k_top].cpu().numpy())
+            for i in range(T):
+                if i not in selected_set:
+                    available_indices.append(i)
+            
+            # 从可用索引中随机选择
+            if len(available_indices) > 0 and k_rand > 0:
+                selected_random = np.random.choice(
+                    available_indices, 
+                    size=min(k_rand, len(available_indices)), 
+                    replace=False
+                )
+                if len(selected_random) > 0:
+                    random_indices = torch.tensor(selected_random, dtype=torch.long, device=device)
+                    final_indices_b = torch.cat([top_k_indices[b], random_indices])
+                    final_indices[b] = final_indices_b[:actual_k]  # 确保总数不超过actual_k
+            else:
+                # 如果没有足够的可用索引，就截取或填充
+                if final_indices[b].size(0) < actual_k:
+                    # 用已有的索引填充（虽然不太理想，但保证形状正确）
+                    needed = actual_k - final_indices[b].size(0)
+                    if final_indices[b].size(0) > 0:
+                        extra_indices = final_indices[b][:needed] if needed <= final_indices[b].size(0) else final_indices[b].repeat(((needed + final_indices[b].size(0) - 1) // final_indices[b].size(0),))[:needed]
+                        final_indices[b] = torch.cat([final_indices[b], extra_indices])
+        
+        # 确保索引数量正确
+        final_indices = final_indices[:, :actual_k]
+
+        # 使用gather操作提取对应的embeddings
+        expanded_indices = final_indices.unsqueeze(-1).expand(-1, -1, D)
+        selected_embeddings = torch.gather(embeddings, 1, expanded_indices)
+        
         return selected_embeddings
 
     def consistency_snippets_mining(self, aness_bin1, aness_bin2, actionness, embeddings, k_easy):
