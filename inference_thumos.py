@@ -98,7 +98,7 @@ def inference(net, config, test_loader, model_file=None):
 
                     proposals = misc_utils.get_proposal_oic(seg_list, cas_pred.copy(), score_supp[0, :].cpu().data.numpy(),
                                                             pred, config.scale, vid_num_seg[0].cpu().item(), config.feature_fps,
-                                                            config.num_segments, config.gamma)
+                                                            config.num_segments, config.gamma, expand_ratio=0.1)
 
                     for j in range(len(proposals)):
                         if not proposals[j]:

@@ -11,7 +11,7 @@ from scipy.interpolate import interp1d
 from tqdm import tqdm
 
 
-def get_proposal_oic(tList, wtcam, final_score, c_pred, scale, v_len, sampling_frames, num_segments, lambda_=0.25, gamma=0.2):
+def get_proposal_oic(tList, wtcam, final_score, c_pred, scale, v_len, sampling_frames, num_segments, lambda_=0.25, gamma=0.2, expand_ratio=0.1):
     t_factor = (16 * v_len) / (scale * num_segments * sampling_frames)
     temp = []
     for i in range(len(tList)):   # 如果该视频只判别出一种动作len(tList)=1, 两种就是2
@@ -37,9 +37,15 @@ def get_proposal_oic(tList, wtcam, final_score, c_pred, scale, v_len, sampling_f
                     outer_score = np.mean(wtcam[outer_temp_list, i, 0])
 
                 c_score = inner_score - outer_score + gamma * final_score[c_pred[i]]
-                t_start = grouped_temp_list[j][0] * t_factor
-                t_end = (grouped_temp_list[j][-1] + 1) * t_factor
-                c_temp.append([c_pred[i], c_score, t_start, t_end])    # 动作类别，置信度，开始时刻，结束时刻
+                
+                # 边界扩张
+                start = grouped_temp_list[j][0] * t_factor
+                end = (grouped_temp_list[j][-1] + 1) * t_factor
+                length = end - start
+                start = max(0, start - expand_ratio * length)
+                end = min(v_len * 16 / sampling_frames, end + expand_ratio * length)  # 确保不超过视频长度
+                
+                c_temp.append([c_pred[i], c_score, start, end])    # 动作类别，置信度，开始时刻，结束时刻
         temp.append(c_temp)
     return temp
 
@@ -49,29 +55,40 @@ def grouping(arr):
 
 
 def basnet_nms(proposals, thresh, soft_nms=False, nms_alpha=0):
+    # 分段NMS：对短proposal和长proposal使用不同的IOU阈值
     proposals = np.array(proposals)
 
     x1 = proposals[:, 2]        # start
     x2 = proposals[:, 3]        # end
     scores = proposals[:, 1]
 
-    areas = x2 - x1 + 1
+    areas = x2 - x1  # 修改这里，不需要+1，因为是时间段
     order = scores.argsort()[::-1]    #　[::-1] 顺序倒置
 
     keep = []
     not_keep = []
     while order.size > 0:
         i = order[0]
+        
+        # 计算提案长度（以帧为单位）
+        proposal_length = x2[i] - x1[i]
+        
+        # 根据提案长度选择不同的NMS IOU阈值
+        if proposal_length < 20:  # 短proposal
+            current_thresh = 0.8
+        else:  # 长proposal
+            current_thresh = 0.6
+        
         keep.append(proposals[i].tolist())
         xx1 = np.maximum(x1[i], x1[order[1:]])
         xx2 = np.minimum(x2[i], x2[order[1:]])
 
-        inter = np.maximum(0.0, xx2 - xx1 + 1)
+        inter = np.maximum(0.0, xx2 - xx1)
 
         iou = inter / (areas[i] + areas[order[1:]] - inter)
 
         if soft_nms:
-            inv_inds = np.where(iou >= thresh)[0]
+            inv_inds = np.where(iou >= current_thresh)[0]
             props_mod = proposals[order[inv_inds + 1]]
 
             for k in range(props_mod.shape[0]):
@@ -79,7 +96,7 @@ def basnet_nms(proposals, thresh, soft_nms=False, nms_alpha=0):
 
             not_keep.extend(props_mod.tolist())
 
-        inds = np.where(iou < thresh)[0]
+        inds = np.where(iou < current_thresh)[0]
         order = order[inds + 1]
 
     if soft_nms:
