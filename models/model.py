@@ -58,6 +58,9 @@ class BaseModel(nn.Module):
             nn.Conv1d(512, 512, 7, padding=3)
         ])
         
+        # 多尺度特征降维
+        self.reduce_dim = nn.Conv1d(512 * 3, 512, 1)  # 3个卷积层的输出拼接后降维
+        
         # Actionness Head
         self.actionness_head = nn.Sequential(
             nn.Conv1d(512, 256, 1),
@@ -98,9 +101,15 @@ class BaseModel(nn.Module):
                0.75 * mixed1_weight * emb_mixed1 +
                0.25 * mixed2_weight * emb_mixed2)
 
+        # 多尺度时间卷积
+        feat_t = emb.transpose(1, 2)  # [B, D, T]
+        feat_ms = torch.cat([conv(feat_t) for conv in self.temporal_convs], dim=1)
+        feat_reduced = self.reduce_dim(feat_ms)  # [B, D, T]
+        emb_enhanced = feat_reduced.transpose(1, 2)  # [B, T, D]
+
         embedding_flow = emb_flow.permute(0, 2, 1)
         embedding_rgb = emb_rgb.permute(0, 2, 1)
-        embedding = emb.permute(0, 2, 1)
+        embedding = emb_enhanced  # 使用增强后的特征
 
         # 分类输出
         cas = self.cls(emb).permute(0, 2, 1)
@@ -119,8 +128,12 @@ class BaseModel(nn.Module):
         action_mixed2 = action_mixed2.squeeze(1)
 
         actionness2 = (action_flow + action_rgb + action_mixed1 + action_mixed2) / 4
+        
+        # 计算actionness
+        emb_t = emb.transpose(1, 2)  # [B, D, T]
+        actionness = self.actionness_head(emb_t).squeeze(1)  # [B, T]
 
-        return cas, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb
+        return cas, actionness, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb
 
 
 class AICL(nn.Module):
