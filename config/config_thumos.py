@@ -98,8 +98,8 @@ class Config(object):
         self.nms_thresh = args.nms_thresh
         self.load_weight = args.load_weight
         self.verbose = args.verbose
-        self.expand_ratio = args.expand_ratio
-        self.actionness_smooth = args.actionness_smooth
+        self.expand_ratio = getattr(args, 'expand_ratio', 0.2)
+        self.actionness_smooth = getattr(args, 'actionness_smooth', False)
 
 
 class_dict = {
