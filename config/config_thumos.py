@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument('--num_segments1', default=50, type=int)
     parser.add_argument('--num_segments2', default=1500, type=int)
     parser.add_argument('--scale', default=24, type=int)
-    
+
     # model parameters
     parser.add_argument('--model_name', required=True, type=str, help="Which model to use")
 
@@ -31,7 +31,8 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.0001, help='learning rates for steps(list form)')
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--num_epochs', type=int, default=5000)
-    parser.add_argument('--detection_inf_step', default=50, type=int, help="Run detection inference every n steps")  # 50
+    parser.add_argument('--detection_inf_step', default=50, type=int,
+                        help="Run detection inference every n steps")  # 50
     parser.add_argument('--q_val', default=0.7, type=float)
 
     # inference parameters
@@ -43,17 +44,16 @@ def parse_args():
     parser.add_argument('--nms_alpha', default=0.35, type=float)
     parser.add_argument('--nms_thresh', default=0.6, type=float)
     parser.add_argument('--load_weight', default=False, action='store_true')
-    
+
     # system parameters
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--seed', type=int, default=1, help='random seed (-1 for no manual seed)')  # 42
     parser.add_argument('--verbose', default=False, action='store_true')
-    
+
     return init_args(parser.parse_args())
 
 
 def init_args(args):
-
     args.model_path = os.path.join(args.output_dir, args.exp_name)
     if not os.path.exists(args.model_path):
         os.makedirs(args.model_path)
@@ -77,8 +77,8 @@ class Config(object):
         self.model_path = os.path.join(args.output_dir, args.exp_name)
         self.num_workers = args.num_workers
         self.class_thresh = args.class_th
-        self.act_thresh = np.arange(0.1, 1.0, 0.1)    
-        self.act_thresh1 = np.arange(0.1, 1.0, 0.1)     
+        self.act_thresh = np.arange(0.1, 1.0, 0.1)
+        self.act_thresh1 = np.arange(0.1, 1.0, 0.1)
         self.q_val = args.q_val
         self.scale = args.scale
         self.gt_path = os.path.join(self.data_path, 'gt.json')
