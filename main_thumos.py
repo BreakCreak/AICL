@@ -136,7 +136,6 @@ class ThumosTrainer():
 
         # loss, optimizer
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr, betas=(0.9, 0.999), weight_decay=0.0005)
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=2000, gamma=0.9)  # 每2000步衰减10%
         self.criterion = CrossEntropyLoss()
         self.Lgce = GeneralizedCE(q=self.config.q_val)
 
@@ -182,11 +181,8 @@ class ThumosTrainer():
         modality_consistent_loss = 0.5 * F.mse_loss(action_flow, action_rgb) + 0.5 * F.mse_loss(action_rgb, action_flow)
         action_consistent_loss = 0.1 * F.mse_loss(actionness1, actionness2) + 0.1 * F.mse_loss(actionness2, actionness1)
 
-        # 动态调整对比损失权重，训练初期较强，后期减弱
-        dynamic_contrast_weight = max(0.05, 0.15 - 0.00001 * self.step)  # 从0.15逐渐降至0.05
-        
         # 提高高IoU阈值下的性能，增加对比损失权重和模态一致性损失
-        cost = base_loss + class_agnostic_loss + 3 * modality_consistent_loss + dynamic_contrast_weight * loss_contrastive + 0.15 * action_consistent_loss
+        cost = base_loss + class_agnostic_loss + 5 * modality_consistent_loss + 0.01 * loss_contrastive + 0.1 * action_consistent_loss
 
         return cost
 
@@ -252,9 +248,6 @@ class ThumosTrainer():
 
                 cost.backward()
                 self.optimizer.step()
-
-                # 更新学习率
-                self.scheduler.step()
 
                 self.total_loss_per_epoch += cost.cpu().item()
                 self.step += 1
