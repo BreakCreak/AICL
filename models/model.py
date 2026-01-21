@@ -153,8 +153,10 @@ class AICL(nn.Module):
         self.dropout = nn.Dropout(p=0.6)
 
     def select_topk_embeddings(self, scores, embeddings, k):
+        # 确保k不超过scores的第二维大小，避免索引越界
+        actual_k = min(k, scores.size(1))
         _, idx_DESC = scores.sort(descending=True, dim=1)
-        idx_topk = idx_DESC[:, :k]
+        idx_topk = idx_DESC[:, :actual_k]
         idx_topk = idx_topk.unsqueeze(2).expand([-1, -1, embeddings.shape[2]])
         selected_embeddings = torch.gather(embeddings, 1, idx_topk)
         return selected_embeddings
