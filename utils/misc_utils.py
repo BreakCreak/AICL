@@ -38,12 +38,14 @@ def get_proposal_oic(tList, wtcam, final_score, c_pred, scale, v_len, sampling_f
 
                 c_score = inner_score - outer_score + gamma * final_score[c_pred[i]]
                 
-                # 边界扩张
+                # 边界扩张 - 修改此部分以放宽边界
                 start = grouped_temp_list[j][0] * t_factor
                 end = (grouped_temp_list[j][-1] + 1) * t_factor
                 length = end - start
-                start = max(0, start - expand_ratio * length)
-                end = min(v_len * 16 / sampling_frames, end + expand_ratio * length)  # 确保不超过视频长度
+                # 扩张比例从0.1增加到0.2或0.3
+                expansion_amount = expand_ratio * length
+                start = max(0, start - expansion_amount)
+                end = min(v_len * 16 / sampling_frames, end + expansion_amount)  # 确保不超过视频长度
                 
                 c_temp.append([c_pred[i], c_score, start, end])    # 动作类别，置信度，开始时刻，结束时刻
         temp.append(c_temp)
@@ -73,7 +75,7 @@ def basnet_nms(proposals, thresh, soft_nms=False, nms_alpha=0):
         # 计算提案长度（以帧为单位）
         proposal_length = x2[i] - x1[i]
         
-        # 根据提案长度选择不同的NMS IOU阈值
+        # 根据提案长度选择不同的NMS IOU阈值 - 实现分段NMS
         if proposal_length < 20:  # 短proposal
             current_thresh = 0.8
         else:  # 长proposal

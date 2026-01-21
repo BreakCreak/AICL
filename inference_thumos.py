@@ -51,6 +51,13 @@ def inference(net, config, test_loader, model_file=None):
                                                       action_flow.unsqueeze(1).permute(0, 2, 1),  # cas_flow
                                                       action_rgb.unsqueeze(1).permute(0, 2, 1))  # cas_rgb
 
+            # Actionness 平滑处理，使其更不稳定更抖动
+            if config.actionness_smooth:
+                # 假设原始actionness未经过sigmoid，如果已经过则注释掉下一行
+                # actionness = torch.sigmoid(actionness)
+                actionness = torch.clamp(actionness, min=0.05)  # 抬起边缘帧
+                # 或者使用幂次操作: actionness = actionness ** 0.7
+
             _, topk_indices = torch.topk(combined_cas, config.num_segments // 8, dim=1)
 
             # class prediction

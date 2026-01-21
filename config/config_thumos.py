@@ -98,6 +98,8 @@ class Config(object):
         self.nms_thresh = args.nms_thresh
         self.load_weight = args.load_weight
         self.verbose = args.verbose
+        self.expand_ratio = args.expand_ratio
+        self.actionness_smooth = args.actionness_smooth
 
 
 class_dict = {
