@@ -74,7 +74,7 @@ def inference(net, config, test_loader, model_file=None):
             num_correct += np.sum((correct_pred == config.num_classes).astype(np.float32))
             num_total += correct_pred.shape[0]
 
-            pred = np.where(score_np > config.class_thresh)[0]
+            pred = np.where(score_np > 0.2)[0]  # 使用固定阈值0.2
 
             # action prediction
             if len(pred) != 0:

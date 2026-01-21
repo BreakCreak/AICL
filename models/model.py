@@ -58,6 +58,9 @@ class BaseModel(nn.Module):
             nn.Conv1d(512, 512, 7, padding=3)
         ])
         
+        # 多尺度特征降维
+        self.reduce_dim = nn.Conv1d(512 * 3, 512, 1)  # 3个卷积层的输出拼接后降维
+        
         # Actionness Head
         self.actionness_head = nn.Sequential(
             nn.Conv1d(512, 256, 1),
@@ -98,12 +101,18 @@ class BaseModel(nn.Module):
                0.75 * mixed1_weight * emb_mixed1 +
                0.25 * mixed2_weight * emb_mixed2)
 
+        # 多尺度时间卷积
+        # 注意：emb 的原始形状是 [B, D, T]，其中 D 是特征维度，T 是时间步数
+        # 卷积层期望输入格式为 [B, Channels, Length]，所以 emb 已经符合这个格式
+        feat_ms = torch.cat([conv(emb) for conv in self.temporal_convs], dim=1)  # [B, D_out*3, T]
+        emb_enhanced = self.reduce_dim(feat_ms)  # [B, D, T]
+
         embedding_flow = emb_flow.permute(0, 2, 1)
         embedding_rgb = emb_rgb.permute(0, 2, 1)
-        embedding = emb.permute(0, 2, 1)
+        embedding = emb_enhanced  # 使用增强后的特征
 
         # 分类输出
-        cas = self.cls(emb).permute(0, 2, 1)
+        cas = self.cls(emb_enhanced).permute(0, 2, 1)
         actionness1 = cas.sum(dim=2)
         actionness1 = torch.sigmoid(actionness1)
 
@@ -119,8 +128,12 @@ class BaseModel(nn.Module):
         action_mixed2 = action_mixed2.squeeze(1)
 
         actionness2 = (action_flow + action_rgb + action_mixed1 + action_mixed2) / 4
+        
+        # 计算actionness
+        # emb的形状为[B, D, T]，符合卷积层的输入要求
+        actionness = self.actionness_head(emb).squeeze(1)  # [B, T]
 
-        return cas, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb
+        return cas, actionness, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb
 
 
 class AICL(nn.Module):
@@ -140,24 +153,54 @@ class AICL(nn.Module):
         self.dropout = nn.Dropout(p=0.6)
 
     def select_topk_embeddings(self, scores, embeddings, k):
+        # 确保k不超过scores的第二维大小，避免索引越界
+        actual_k = min(k, scores.size(1))
         _, idx_DESC = scores.sort(descending=True, dim=1)
-        idx_topk = idx_DESC[:, :k]
+        idx_topk = idx_DESC[:, :actual_k]
         idx_topk = idx_topk.unsqueeze(2).expand([-1, -1, embeddings.shape[2]])
         selected_embeddings = torch.gather(embeddings, 1, idx_topk)
         return selected_embeddings
 
-    def consistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness1, embeddings, k_easy):
-
-        x = aness_bin1 + aness_bin2
-        select_idx_act = actionness1.new_tensor(np.where(x == 2, 1, 0))
+    def consistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness, embeddings, k_easy):
+        # 确保 numpy 数组转换为正确的 torch 张量并移动到正确设备
+        device = actionness.device
+        
+        # 将 numpy 数组转换为 torch 张量，并确保形状和设备正确
+        aness_bin1_tensor = torch.from_numpy(aness_bin1.astype(np.float32)).to(device)
+        aness_bin2_tensor = torch.from_numpy(aness_bin2.astype(np.float32)).to(device)
+        
+        x = aness_bin1_tensor + aness_bin2_tensor
+        
+        # 确保 x 的形状与 actionness 匹配
+        if x.shape != actionness.shape:
+            # 如果形状不匹配，调整 x 的形状
+            if len(x.shape) == len(actionness.shape) and x.shape[0] == actionness.shape[0]:
+                # 扩展较小的维度以匹配
+                min_time_steps = min(x.shape[1], actionness.shape[1])
+                x = x[:, :min_time_steps]
+                actionness_for_use = actionness[:, :min_time_steps]
+            else:
+                # 默认使用 actionness 的形状
+                actionness_shape = actionness.shape
+                if len(actionness_shape) == 2:
+                    x = x[:actionness_shape[0], :actionness_shape[1]]
+                    actionness_for_use = actionness
+        else:
+            actionness_for_use = actionness
+        
+        select_idx_act = (x == 2).float()
         # print(torch.min(torch.sum(select_idx_act, dim=-1)))
 
-        actionness_act = actionness1 * select_idx_act
+        # 引入actionness gating: pos = consistent_snippets & (actionness > 0.6)
+        actionness_gate = (actionness_for_use > 0.6).float()
+        actionness_act = actionness_for_use * select_idx_act * actionness_gate
 
-        select_idx_bg = actionness1.new_tensor(np.where(x == 0, 1, 0))
+        select_idx_bg = (x == 0).float()
 
-        actionness_rev = torch.max(actionness1, dim=1, keepdim=True)[0] - actionness1
-        actionness_bg = actionness_rev * select_idx_bg
+        actionness_rev = torch.max(actionness_for_use, dim=1, keepdim=True)[0] - actionness_for_use
+        # 引入actionness gating: neg = inconsistent_snippets | (actionness < 0.2)
+        bg_actionness_gate = (actionness_for_use < 0.2).float()
+        actionness_bg = actionness_rev * select_idx_bg + bg_actionness_gate * select_idx_bg
 
         easy_act = self.select_topk_embeddings(actionness_act, embeddings, k_easy)
         easy_bkg = self.select_topk_embeddings(actionness_bg, embeddings, k_easy)
@@ -166,17 +209,42 @@ class AICL(nn.Module):
         return easy_act, easy_bkg
 
     def Inconsistency_snippets_mining1(self, aness_bin1, aness_bin2, actionness, embeddings, k_hard):
-
-        x = aness_bin1 + aness_bin2
-        idx_region_inner = actionness.new_tensor(np.where(x == 1, 1, 0))
+        # 确保 numpy 数组转换为正确的 torch 张量并移动到正确设备
+        device = actionness.device
+        
+        # 将 numpy 数组转换为 torch 张量，并确保形状和设备正确
+        aness_bin1_tensor = torch.from_numpy(aness_bin1.astype(np.float32)).to(device)
+        aness_bin2_tensor = torch.from_numpy(aness_bin2.astype(np.float32)).to(device)
+        
+        x = aness_bin1_tensor + aness_bin2_tensor
+        
+        # 确保 x 的形状与 actionness 匹配
+        if x.shape != actionness.shape:
+            # 如果形状不匹配，调整 x 的形状
+            if len(x.shape) == len(actionness.shape) and x.shape[0] == actionness.shape[0]:
+                # 扩展较小的维度以匹配
+                min_time_steps = min(x.shape[1], actionness.shape[1])
+                x = x[:, :min_time_steps]
+                actionness_for_use = actionness[:, :min_time_steps]
+            else:
+                # 默认使用 actionness 的形状
+                actionness_shape = actionness.shape
+                if len(actionness_shape) == 2:
+                    x = x[:actionness_shape[0], :actionness_shape[1]]
+                    actionness_for_use = actionness
+        else:
+            actionness_for_use = actionness
+            
+        idx_region_inner = (x == 1).float()
+        
         # 引入actionness gating
-        actionness_gate = (actionness > 0.6).float()
-        aness_region_inner = actionness * idx_region_inner * actionness_gate
+        actionness_gate = (actionness_for_use > 0.6).float()
+        aness_region_inner = actionness_for_use * idx_region_inner * actionness_gate
         hard_act = self.select_topk_embeddings(aness_region_inner, embeddings, k_hard)
 
-        actionness_rev = torch.max(actionness, dim=1, keepdim=True)[0] - actionness
+        actionness_rev = torch.max(actionness_for_use, dim=1, keepdim=True)[0] - actionness_for_use
         # 引入actionness gating
-        bg_actionness_gate = (actionness < 0.2).float()
+        bg_actionness_gate = (actionness_for_use < 0.2).float()
         aness_region_outer = actionness_rev * idx_region_inner + bg_actionness_gate * idx_region_inner
         hard_bkg = self.select_topk_embeddings(aness_region_outer, embeddings, k_hard)
 
@@ -187,7 +255,7 @@ class AICL(nn.Module):
         k_C = num_segments // self.r_C
         k_I = num_segments // self.r_I
 
-        cas, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb = self.actionness_module(x)
+        cas, actionness, action_flow, action_rgb, actionness1, actionness2, embedding, embedding_flow, embedding_rgb = self.actionness_module(x)
 
         aness_np1 = actionness1.cpu().detach().numpy()
         aness_median1 = np.median(aness_np1, 1, keepdims=True)
