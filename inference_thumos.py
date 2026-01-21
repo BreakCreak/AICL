@@ -43,7 +43,7 @@ def inference(net, config, test_loader, model_file=None):
             _label = _label.cuda()
 
             # FORWARD PASS
-            cas, actionness, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2 = net(_data)
+            cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2 = net(_data)
 
             # 使用新的 instance_selection_function2 来融合更多分支
             combined_cas = misc_utils.instance_selection_function2(torch.softmax(cas.detach(), -1),  # cas_r
@@ -98,7 +98,7 @@ def inference(net, config, test_loader, model_file=None):
 
                     proposals = misc_utils.get_proposal_oic(seg_list, cas_pred.copy(), score_supp[0, :].cpu().data.numpy(),
                                                             pred, config.scale, vid_num_seg[0].cpu().item(), config.feature_fps,
-                                                            config.num_segments, config.gamma, expand_ratio=0.1)
+                                                            config.num_segments, config.gamma, expand_ratio=config.expand_ratio)
 
                     for j in range(len(proposals)):
                         if not proposals[j]:
