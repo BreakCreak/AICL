@@ -112,7 +112,7 @@ class BaseModel(nn.Module):
         embedding = emb_enhanced  # 使用增强后的特征
 
         # 分类输出
-        cas = self.cls(emb).permute(0, 2, 1)
+        cas = self.cls(emb_enhanced).permute(0, 2, 1)
         actionness1 = cas.sum(dim=2)
         actionness1 = torch.sigmoid(actionness1)
 

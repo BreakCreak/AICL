@@ -74,46 +74,62 @@ def set_seed(config):
 class ContrastiveLoss(nn.Module):
     def __init__(self):
         super(ContrastiveLoss, self).__init__()
-        self.ce_criterion = nn.CrossEntropyLoss()
+        self.ce_criterion = nn.CrossEntropyLoss(reduction='none')  # 使用none以实现软权重
 
-    def NCE(self, q, k, neg, T=0.1):                #　　0.1
+    def NCE_with_actionness_weight(self, q, k, neg, actionness, T=0.1):
         q = nn.functional.normalize(q, dim=1)
         k = nn.functional.normalize(k, dim=1)
         neg = neg.permute(0,2,1)
         neg = nn.functional.normalize(neg, dim=1)
+        
         l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)
         l_neg = torch.einsum('nc,nck->nk', [q, neg])
         logits = torch.cat([l_pos, l_neg], dim=1)
-        logits /= T  # 使用较小的温度参数以增强对比学习效果
+        logits /= T
+        
+        # 创建标签，正样本为0，负样本为1,2,...
         labels = torch.zeros(logits.shape[0], dtype=torch.long).to(logits.device)
-        loss = self.ce_criterion(logits, labels)
+        
+        # 计算每个样本的损失
+        per_sample_loss = self.ce_criterion(logits, labels)
+        
+        # 使用软actionness权重
+        pos_weight = actionness.detach().mean(dim=1)  # 对时间维度求平均
+        neg_weight = (1 - actionness.detach()).mean(dim=1)  # 对时间维度求平均
+        
+        # 应用软权重
+        weighted_loss = (pos_weight * per_sample_loss).mean()
+        
+        return weighted_loss
 
-        return loss
-
-    def forward(self, contrast_pairs):
-
-        IA_refinement = self.NCE(
+    def forward(self, contrast_pairs, actionness):
+        # 使用软actionness权重的对比损失
+        IA_refinement = self.NCE_with_actionness_weight(
             torch.mean(contrast_pairs['IA'], 1),
             torch.mean(contrast_pairs['CA'], 1),
-            contrast_pairs['CB']
+            contrast_pairs['CB'],
+            actionness
         )
 
-        IB_refinement = self.NCE(
+        IB_refinement = self.NCE_with_actionness_weight(
             torch.mean(contrast_pairs['IB'], 1),
             torch.mean(contrast_pairs['CB'], 1),
-            contrast_pairs['CA']
+            contrast_pairs['CA'],
+            actionness
         )
 
-        CA_refinement = self.NCE(
+        CA_refinement = self.NCE_with_actionness_weight(
             torch.mean(contrast_pairs['CA'], 1),
             torch.mean(contrast_pairs['IA'], 1),
-            contrast_pairs['CB']
+            contrast_pairs['CB'],
+            actionness
         )
 
-        CB_refinement = self.NCE(
+        CB_refinement = self.NCE_with_actionness_weight(
             torch.mean(contrast_pairs['CB'], 1),
             torch.mean(contrast_pairs['IB'], 1),
-            contrast_pairs['CA']
+            contrast_pairs['CA'],
+            actionness
         )
 
         loss = IA_refinement + IB_refinement + CA_refinement + CB_refinement
@@ -169,6 +185,15 @@ class ThumosTrainer():
             cls_agnostic_gt.append(cls_agnostic_gt_b)
 
         return torch.cat(cls_agnostic_gt, dim=0)  # B, 1, num_segments
+
+    def background_entropy_loss(self, cls_score, actionness, thresh=0.2):
+        bg_mask = (actionness < thresh).float()
+        prob = torch.softmax(cls_score, dim=-1)
+        entropy = -torch.sum(prob * torch.log(prob + 1e-6), dim=-1)
+        return (entropy * bg_mask).mean()
+
+    def actionness_sparse_loss(self, actionness):
+        return actionness.mean()
 
 
     def calculate_all_losses1(self, contrast_pairs, contrast_pairs_r, contrast_pairs_f, cas_top, label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2):
