@@ -207,7 +207,7 @@ class ThumosTrainer():
 
 
     def forward_pass(self, _data):
-        cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2 = self.net(_data)
+        cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights = self.net(_data)
 
         # 增加一个维度以避免 permute 错误
         action_flow = action_flow.unsqueeze(1)  # 将 [B, T] 转换为 [B, 1, T]
@@ -222,7 +222,7 @@ class ThumosTrainer():
         _, topk_indices = torch.topk(combined_cas, self.config.num_segments // 8, dim=1)
         cas_top = torch.mean(torch.gather(cas, 1, topk_indices), dim=1)
 
-        return cas_top, topk_indices, action_flow.squeeze(1), action_rgb.squeeze(1), contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2
+        return cas_top, topk_indices, action_flow.squeeze(1), action_rgb.squeeze(1), contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights
 
 
     def train(self):

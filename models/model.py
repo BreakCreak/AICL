@@ -73,7 +73,7 @@ class BaseModel(nn.Module):
                                                                                       :], gate_weights[:, 3:4, :]
 
         # MoE 加权融合
-        emb = 0.5 * rgb_w * emb_rgb + 0.5 * flow_w * emb_mixed1 + 0.75 * m1_w * emb_mixed1 + 0.25 * m2_w * emb_mixed2
+        emb = 0.5 * rgb_w * emb_rgb + 0.5 * flow_w * emb_flow + 0.75 * m1_w * emb_mixed1 + 0.25 * m2_w * emb_mixed2
 
         # 分类
         cas = self.cls(emb).permute(0, 2, 1)
