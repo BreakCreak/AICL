@@ -41,12 +41,12 @@ class BaseModel(nn.Module):
         self.cls_mixed2 = nn.Conv1d(512, 1, 1)
 
         # 门控模块
-        self.gate_module = nn.Sequential(
+        self.gate_module_part1 = nn.Sequential(
             nn.Conv1d(len_feature, 512, 3, padding=1),
             nn.ReLU(),
-            nn.Conv1d(512, 4, 1),
-            nn.Softmax(dim=1)
+            nn.Conv1d(512, 4, 1)
         )
+        self.gate_softmax = nn.Softmax(dim=1)
 
         # 最终分类
         self.cls = nn.Conv1d(512, self.num_classes, 1)
@@ -64,7 +64,8 @@ class BaseModel(nn.Module):
         emb_mixed2 = self.action_module_mixed2(0.75 * input[:, :1024, :] + 0.25 * input[:, 1024:, :])
 
         # 门控
-        gate_weights = self.gate_module(input)
+        gate_logits = self.gate_module_part1(input)
+        gate_weights = F.softmax(gate_logits / 0.7, dim=1)  # 添加温度缩放，使门控更尖锐
         if inference:
             # 软化门控
             gate_weights = gate_weights * 0.7 + 0.3 / 4
@@ -72,8 +73,13 @@ class BaseModel(nn.Module):
         rgb_w, flow_w, m1_w, m2_w = gate_weights[:, 0:1, :], gate_weights[:, 1:2, :], gate_weights[:, 2:3,
                                                                                       :], gate_weights[:, 3:4, :]
 
-        # MoE 加权融合
-        emb = 0.5 * rgb_w * emb_rgb + 0.5 * flow_w * emb_flow + 0.75 * m1_w * emb_mixed1 + 0.25 * m2_w * emb_mixed2
+        # MoE 守恒融合 - 解决权重不守恒问题
+        emb_unnorm = (rgb_w * emb_rgb + 
+                     flow_w * emb_flow + 
+                     m1_w * emb_mixed1 + 
+                     m2_w * emb_mixed2)
+        emb_norm_factor = (rgb_w + flow_w + m1_w + m2_w + 1e-6)  # 防止除零
+        emb = emb_unnorm / emb_norm_factor
 
         # 分类
         cas = self.cls(emb).permute(0, 2, 1)
@@ -100,7 +106,7 @@ class AICL(nn.Module):
         self.len_feature = 2048
         self.num_classes = 20
         self.r_C = 20
-        self.r_I = 30  # 改为30以降低hard采样比例，防止hard negative过干
+        self.r_I = 40  # 从30改为40，减少hard negative数量
         self.model = BaseModel(self.len_feature, self.num_classes, cfg)
         self.dropout = nn.Dropout(0.6)
 
@@ -230,14 +236,16 @@ class AICL(nn.Module):
         aness_bin2 = (aness_np2 > thr2).astype(np.float32)  # 改为分位数二值化
 
         # mining
-        CA, CB = self.consistency_snippets_mining(aness_bin1, aness_bin2, actionness1, embedding, k_C)
-        IA, IB = self.inconsistency_snippets_mining(aness_bin1, aness_bin2, actionness1, embedding, k_I)
+        actionness_mining = action_rgb.detach()  # 使用单分支actionness，不反传梯度
+        
+        CA, CB = self.consistency_snippets_mining(aness_bin1, aness_bin2, actionness_mining, embedding, k_C)
+        IA, IB = self.inconsistency_snippets_mining(aness_bin1, aness_bin2, actionness_mining, embedding, k_I)
 
-        CAr, CBr = self.consistency_snippets_mining(aness_bin1, aness_bin2, actionness1, embedding_rgb, k_C)
-        IAr, IBr = self.inconsistency_snippets_mining(aness_bin1, aness_bin2, actionness1, embedding_rgb, k_I)
+        CAr, CBr = self.consistency_snippets_mining(aness_bin1, aness_bin2, actionness_mining, embedding_rgb, k_C)
+        IAr, IBr = self.inconsistency_snippets_mining(aness_bin1, aness_bin2, actionness_mining, embedding_rgb, k_I)
 
-        CAf, CBf = self.consistency_snippets_mining(aness_bin1, aness_bin2, actionness1, embedding_flow, k_C)
-        IAf, IBf = self.inconsistency_snippets_mining(aness_bin1, aness_bin2, actionness1, embedding_flow, k_I)
+        CAf, CBf = self.consistency_snippets_mining(aness_bin1, aness_bin2, actionness_mining, embedding_flow, k_C)
+        IAf, IBf = self.inconsistency_snippets_mining(aness_bin1, aness_bin2, actionness_mining, embedding_flow, k_I)
 
         contrast_pairs = {'CA': CA, 'CB': CB, 'IA': IA, 'IB': IB}
         contrast_pairs_r = {'CA': CAr, 'CB': CBr, 'IA': IAr, 'IB': IBr}
