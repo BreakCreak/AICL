@@ -73,7 +73,7 @@ class BaseModel(nn.Module):
                                                                                       :], gate_weights[:, 3:4, :]
 
         # MoE 加权融合
-        emb = 0.5 * rgb_w * emb_rgb + 0.5 * flow_w * emb_flow + 0.75 * m1_w * emb_mixed1 + 0.25 * m2_w * emb_mixed2
+        emb = 0.5 * rgb_w * emb_rgb + 0.5 * flow_w * emb_mixed1 + 0.75 * m1_w * emb_mixed1 + 0.25 * m2_w * emb_mixed2
 
         # 分类
         cas = self.cls(emb).permute(0, 2, 1)
@@ -90,7 +90,7 @@ class BaseModel(nn.Module):
         actionness2 = (0.6 * action_mixed1 + 0.4 * action_mixed2 + 0.5 * action_rgb + 0.5 * action_flow) / 4
         actionness2 = 0.8 * actionness2 + 0.2 * low_action
 
-        return cas, action_flow, action_rgb, action_mixed1, action_mixed2, actionness1, actionness2, emb, emb_flow, emb_rgb
+        return cas, action_flow, action_rgb, action_mixed1, action_mixed2, actionness1, actionness2, emb, emb_flow, emb_rgb, gate_weights
 
 
 # ===================== AICL =====================
@@ -100,7 +100,7 @@ class AICL(nn.Module):
         self.len_feature = 2048
         self.num_classes = 20
         self.r_C = 20
-        self.r_I = 20
+        self.r_I = 30  # 改为30以降低hard采样比例，防止hard negative过干
         self.model = BaseModel(self.len_feature, self.num_classes, cfg)
         self.dropout = nn.Dropout(0.6)
 
@@ -218,14 +218,16 @@ class AICL(nn.Module):
         k_C = num_segments // self.r_C
         k_I = num_segments // self.r_I
 
-        cas, action_flow, action_rgb, action_mixed1, action_mixed2, actionness1, actionness2, embedding, embedding_flow, embedding_rgb = self.model(
+        cas, action_flow, action_rgb, action_mixed1, action_mixed2, actionness1, actionness2, embedding, embedding_flow, embedding_rgb, gate_weights = self.model(
             x)
 
         aness_np1 = actionness1.cpu().detach().numpy()
-        aness_bin1 = np.where(aness_np1 > np.median(aness_np1, 1, keepdims=True), 1.0, 0.0)
+        thr1 = np.percentile(aness_np1, 60, axis=1, keepdims=True)  # 使用60%分位数替代中位数
+        aness_bin1 = (aness_np1 > thr1).astype(np.float32)  # 改为分位数二值化
 
         aness_np2 = actionness2.cpu().detach().numpy()
-        aness_bin2 = np.where(aness_np2 > np.median(aness_np2, 1, keepdims=True), 1.0, 0.0)
+        thr2 = np.percentile(aness_np2, 60, axis=1, keepdims=True)  # 使用60%分位数替代中位数
+        aness_bin2 = (aness_np2 > thr2).astype(np.float32)  # 改为分位数二值化
 
         # mining
         CA, CB = self.consistency_snippets_mining(aness_bin1, aness_bin2, actionness1, embedding, k_C)
@@ -241,4 +243,5 @@ class AICL(nn.Module):
         contrast_pairs_r = {'CA': CAr, 'CB': CBr, 'IA': IAr, 'IB': IBr}
         contrast_pairs_f = {'CA': CAf, 'CB': CBf, 'IA': IAf, 'IB': IBf}
 
-        return cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2
+        return cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights
+

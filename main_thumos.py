@@ -84,7 +84,8 @@ class ContrastiveLoss(nn.Module):
         l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)
         l_neg = torch.einsum('nc,nck->nk', [q, neg])
         logits = torch.cat([l_pos, l_neg], dim=1)
-        logits /= T  # 使用较小的温度参数以增强对比学习效果
+        tau = 0.07  # 添加temperature参数
+        logits /= tau  # 应用temperature缩放
         labels = torch.zeros(logits.shape[0], dtype=torch.long).to(logits.device)
         loss = self.ce_criterion(logits, labels)
 
@@ -171,7 +172,7 @@ class ThumosTrainer():
         return torch.cat(cls_agnostic_gt, dim=0)  # B, 1, num_segments
 
 
-    def calculate_all_losses1(self, contrast_pairs, contrast_pairs_r, contrast_pairs_f, cas_top, label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2):
+    def calculate_all_losses1(self, contrast_pairs, contrast_pairs_r, contrast_pairs_f, cas_top, label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2, gate_weights):
         self.contrastive_criterion = ContrastiveLoss()
         loss_contrastive = self.contrastive_criterion(contrast_pairs) + self.contrastive_criterion(contrast_pairs_r) + self.contrastive_criterion(contrast_pairs_f)
 
@@ -240,13 +241,13 @@ class ThumosTrainer():
                 self.optimizer.zero_grad()
 
                 # forward pass
-                cas_top, topk_indices, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2 = self.forward_pass(_data)
+                cas_top, topk_indices, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights = self.forward_pass(_data)
 
                 # calcualte pseudo target
                 cls_agnostic_gt = self.calculate_pesudo_target(batch_size, _label, topk_indices)
 
                 # losses
-                cost = self.calculate_all_losses1(contrast_pairs, contrast_pairs_r,contrast_pairs_f, cas_top, _label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2)
+                cost = self.calculate_all_losses1(contrast_pairs, contrast_pairs_r, contrast_pairs_f, cas_top, _label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2, gate_weights)
 
                 cost.backward()
                 self.optimizer.step()
