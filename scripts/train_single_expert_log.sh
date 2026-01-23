@@ -12,7 +12,7 @@ nohup python main_thumos.py \
 --exp_name Thumos_SingleExpert \
 --model_name SingleExpert \
 --model_variant single \
---num_epochs 900 \
+--num_epochs 400 \
 --detection_inf_step 50 \
 --soft_nms \
 --data_path '../THUMOS14' > logs/train_single_expert.log 2>&1 &

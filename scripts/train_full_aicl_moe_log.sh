@@ -12,7 +12,7 @@ nohup python main_thumos.py \
 --exp_name Thumos_FullAICLMoE \
 --model_name FullAICLMoE \
 --model_variant full \
---num_epochs 900 \
+--num_epochs 400 \
 --detection_inf_step 50 \
 --soft_nms \
 --data_path '../THUMOS14' > logs/train_full_aicl_moe.log 2>&1 &

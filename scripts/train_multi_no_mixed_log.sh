@@ -12,7 +12,7 @@ nohup python main_thumos.py \
 --exp_name Thumos_MultiNoMixed \
 --model_name MultiExpertNoMixed \
 --model_variant multi_no_mixed \
---num_epochs 900 \
+--num_epochs 400 \
 --detection_inf_step 50 \
 --soft_nms \
 --data_path '../THUMOS14' > logs/train_multi_no_mixed.log 2>&1 &
