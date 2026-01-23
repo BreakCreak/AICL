@@ -17,7 +17,9 @@ from torch.utils.data import Dataset
 from dataset.thumos_features import ThumosFeature
 from utils.loss import CrossEntropyLoss, GeneralizedCE
 from config.config_thumos import Config, parse_args, class_dict
+import importlib
 from models.model import AICL
+from models.ablation_model import AICLAblation
 
 np.set_printoptions(formatter={'float_kind': "{:.2f}".format})
 
@@ -127,7 +129,11 @@ class ThumosTrainer():
         self.config = config
 
         # network
-        self.net = AICL(config)
+        # Check if model variant is specified in config
+        if hasattr(config, 'model_variant') and config.model_variant:
+            self.net = AICLAblation(config, variant=config.model_variant)
+        else:
+            self.net = AICL(config)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
         self.net = self.net.to(self.device)

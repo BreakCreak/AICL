@@ -22,6 +22,7 @@ def parse_args():
 
     # model parameters
     parser.add_argument('--model_name', required=True, type=str, help="Which model to use")
+    parser.add_argument('--model_variant', type=str, default=None, choices=['single', 'multi_no_mixed', 'multi_mixed_no_gate', 'full'], help="Ablation model variant")
 
     # 新增混合分支的融合系数
     parser.add_argument('--mix_ratio1', type=float, default=0.25, help="Mix ratio for RGB+FLOW branch")
