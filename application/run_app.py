@@ -7,11 +7,53 @@ AICL应用主入口脚本
 import os
 import sys
 import argparse
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config.config_thumos import Config  # 导入现有的配置
+# 添加项目根目录到Python路径
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+
+# 手动导入config模块
+config_path = os.path.join(project_root, 'config')
+sys.path.insert(0, config_path)
+
+from config_thumos import parse_args, Config
 from application.config import AppConfig, load_config_from_file
 from application.main_pipeline import run_application
+
+def create_mock_args():
+    """创建模拟参数对象，用于初始化Config"""
+    import tempfile
+    class MockArgs:
+        lr = 0.0001
+        num_classes = 20
+        modal = 'all'
+        len_feature = 2048
+        batch_size = 16
+        data_path = 'DATA_PATH'
+        output_dir = './outputs'
+        exp_name = 'default_exp'
+        num_workers = 8
+        class_th = 0.25
+        q_val = 0.7
+        scale = 24
+        model_file = None
+        seed = 1
+        feature_fps = 25
+        num_segments = 750
+        num_segments1 = 50
+        num_segments2 = 1500
+        num_epochs = 5000
+        gamma = 0.2
+        inference_only = False
+        model_name = 'default_model'
+        detection_inf_step = 50
+        soft_nms = False
+        nms_alpha = 0.35
+        nms_thresh = 0.6
+        load_weight = False
+        verbose = False
+    
+    return MockArgs()
 
 
 def parse_arguments():
@@ -89,6 +131,10 @@ def main():
     
     # 解析参数
     args = parse_arguments()
+    
+    # 创建配置对象
+    mock_args = create_mock_args()
+    config_obj = Config(mock_args)
     
     # 设置设备环境变量
     os.environ['CUDA_AVAILABLE'] = 'true' if args.device == 'cuda' else 'false'
