@@ -11,32 +11,36 @@ echo "==================================="
 # 设置环境变量
 export CUDA_VISIBLE_DEVICES=0
 
-# 启动 (a) Single-Expert 模型
-echo "启动 (a) Single-Expert 模型训练..."
+# 启动 (a) Single-Expert 模型 (使用 GPU 0)
+echo "启动 (a) Single-Expert 模型训练 (GPU 0)..."
+export CUDA_VISIBLE_DEVICES=0
 nohup bash scripts/train_single_expert_log.sh > logs/single_expert_master.log 2>&1 &
 SINGLE_PID=$!
 
 echo "Single Expert PID: $SINGLE_PID (saved to logs/single_expert.pid)"
 
-# 启动 (b) Multi-Expert (No Mixed) 模型
+# 启动 (b) Multi-Expert (No Mixed) 模型 (使用 GPU 0)
 sleep 3  # 稍微延迟以避免同时启动冲突
-echo "启动 (b) Multi-Expert (No Mixed) 模型训练..."
+echo "启动 (b) Multi-Expert (No Mixed) 模型训练 (GPU 0)..."
+export CUDA_VISIBLE_DEVICES=0
 nohup bash scripts/train_multi_no_mixed_log.sh > logs/multi_no_mixed_master.log 2>&1 &
 MIXED_PID=$!
 
 echo "Multi No Mixed PID: $MIXED_PID (saved to logs/multi_no_mixed.pid)"
 
-# 启动 (c) Multi-Expert + Mixed (No Gate) 模型
+# 启动 (c) Multi-Expert + Mixed (No Gate) 模型 (使用 GPU 1)
 sleep 3  # 稍微延迟以避免同时启动冲突
-echo "启动 (c) Multi-Expert + Mixed (No Gate) 模型训练..."
+echo "启动 (c) Multi-Expert + Mixed (No Gate) 模型训练 (GPU 1)..."
+export CUDA_VISIBLE_DEVICES=1
 nohup bash scripts/train_multi_mixed_no_gate_log.sh > logs/multi_mixed_no_gate_master.log 2>&1 &
 NO_GATE_PID=$!
 
 echo "Multi Mixed No Gate PID: $NO_GATE_PID (saved to logs/multi_mixed_no_gate.pid)"
 
-# 启动 (d) Full AICL-MoE 模型
+# 启动 (d) Full AICL-MoE 模型 (使用 GPU 1)
 sleep 3  # 稍微延迟以避免同时启动冲突
-echo "启动 (d) Full AICL-MoE 模型训练..."
+echo "启动 (d) Full AICL-MoE 模型训练 (GPU 1)..."
+export CUDA_VISIBLE_DEVICES=1
 nohup bash scripts/train_full_aicl_moe_log.sh > logs/full_aicl_moe_master.log 2>&1 &
 FULL_PID=$!
 

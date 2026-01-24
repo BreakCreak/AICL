@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AICL模型神经网络结构图</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .architecture-diagram {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+        .module {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: #fafafa;
+        }
+        .module-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        .input-module {
+            border-color: #3498db;
+        }
+        .expert-module {
+            border-color: #e74c3c;
+        }
+        .gating-module {
+            border-color: #f39c12;
+        }
+        .fusion-module {
+            border-color: #27ae60;
+        }
+        .classification-module {
+            border-color: #9b59b6;
+        }
+        .contrast-module {
+            border-color: #e67e22;
+        }
+        .sub-module {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: white;
+            border-left: 3px solid #34495e;
+            border-radius: 0 4px 4px 0;
+        }
+        .feature-shape {
+            font-family: monospace;
+            background-color: #ecf0f1;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .connection {
+            text-align: center;
+            font-size: 16px;
+            color: #7f8c8d;
+            margin: 10px 0;
+        }
+        .arrow {
+            font-size: 20px;
+            vertical-align: middle;
+        }
+        .highlight {
+            background-color: #fff3cd;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AICL模型神经网络结构图</h1>
+        
+        <div class="architecture-diagram">
+            <!-- 输入特征模块 -->
+            <div class="module input-module">
+                <div class="module-title">输入特征模块</div>
+                
+                <div class="sub-module">
+                    <strong>视频特征输入:</strong> [B, T, 2048]
+                </div>
+                
+                <div class="sub-module">
+                    <strong>RGB 特征:</strong> 前 1024 维 → [B, T, 1024]
+                    <div class="feature-shape">→ Conv1d(1024→512, k=3) → ReLU</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>Flow 特征:</strong> 后 1024 维 → [B, T, 1024] 
+                    <div class="feature-shape">→ Conv1d(1024→512, k=3) → ReLU</div>
+                </div>
+            </div>
+            
+            <!-- 多专家特征建模模块 -->
+            <div class="connection">
+                <span class="arrow">↓</span>
+            </div>
+            
+            <div class="module expert-module">
+                <div class="module-title">多专家特征建模模块 (Four Experts)</div>
+                
+                <div class="sub-module">
+                    <strong>RGB Expert:</strong> 基于 RGB 特征的时序卷积建模
+                    <div class="feature-shape">Input: [B, 1024, T] → Conv1d(1024→512, k=3, p=1) → ReLU → emb_rgb</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>Flow Expert:</strong> 基于光流特征的时序卷积建模
+                    <div class="feature-shape">Input: [B, 1024, T] → Conv1d(1024→512, k=3, p=1) → ReLU → emb_flow</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>Mixed Expert 1:</strong> 以 Flow 为主的混合特征建模 (0.25 RGB + 0.75 Flow)
+                    <div class="feature-shape">Input: 0.25×RGB + 0.75×Flow → Conv1d(1024→512, k=3, p=1) → ReLU → emb_mixed1</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>Mixed Expert 2:</strong> 以 RGB 为主的混合特征建模 (0.75 RGB + 0.25 Flow)
+                    <div class="feature-shape">Input: 0.75×RGB + 0.25×Flow → Conv1d(1024→512, k=3, p=1) → ReLU → emb_mixed2</div>
+                </div>
+            </div>
+            
+            <!-- 门控机制 -->
+            <div class="connection">
+                <span class="arrow">↓</span>
+            </div>
+            
+            <div class="module gating-module">
+                <div class="module-title">门控机制 (Gating Network)</div>
+                
+                <div class="sub-module">
+                    <strong>门控输入:</strong> 完整 2048 维特征 → [B, 2048, T]
+                    <div class="feature-shape">Conv1d(2048→512, k=3, p=1) → ReLU → Conv1d(512→4, k=1) → Softmax(dim=1)</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>门控输出:</strong> 4 个专家对应的时序权重
+                    <div class="feature-shape">rgb_w: [B, 1, T], flow_w: [B, 1, T], m1_w: [B, 1, T], m2_w: [B, 1, T]</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>推理时软化:</strong> gate_weights = gate_weights × 0.7 + 0.3/4
+                </div>
+            </div>
+            
+            <!-- 专家融合 -->
+            <div class="connection">
+                <span class="arrow">↓</span>
+            </div>
+            
+            <div class="module fusion-module">
+                <div class="module-title">专家融合 (MoE Fusion)</div>
+                
+                <div class="sub-module">
+                    <strong>加权融合公式:</strong>
+                    <div class="feature-shape">emb = 0.5×rgb_w×emb_rgb + 0.5×flow_w×emb_flow + 0.75×m1_w×emb_mixed1 + 0.25×m2_w×emb_mixed2</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>融合后特征:</strong> [B, 512, T]
+                </div>
+            </div>
+            
+            <!-- 分类与动作性评估模块 -->
+            <div class="connection">
+                <span class="arrow">↓</span>
+            </div>
+            
+            <div class="module classification-module">
+                <div class="module-title">分类与动作性评估模块</div>
+                
+                <div class="sub-module">
+                    <strong>类别激活序列 (CAS) 预测:</strong>
+                    <div class="feature-shape">emb → Conv1d(512→20, k=1) → [B, 20, T] → permute → [B, T, 20]</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>全局动作性评分:</strong>
+                    <div class="feature-shape">actionness1 = sigmoid(sum(CAS, dim=2)) → [B, T]</div>
+                    <div class="feature-shape">actionness2 = (0.6×action_mixed1 + 0.4×action_mixed2 + 0.5×action_rgb + 0.5×action_flow)/4</div>
+                    <div class="feature-shape">actionness2 = 0.8×actionness2 + 0.2×min(action_rgb, action_flow)</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>各专家分支动作性:</strong>
+                    <div class="feature-shape">action_rgb = sigmoid(cls_rgb(emb_rgb)) → [B, T]</div>
+                    <div class="feature-shape">action_flow = sigmoid(cls_flow(emb_flow)) → [B, T]</div>
+                    <div class="feature-shape">action_mixed1 = sigmoid(cls_mixed1(emb_mixed1)) → [B, T]</div>
+                    <div class="feature-shape">action_mixed2 = sigmoid(cls_mixed2(emb_mixed2)) → [B, T]</div>
+                </div>
+            </div>
+            
+            <!-- 对比学习片段挖掘模块 -->
+            <div class="connection">
+                <span class="arrow">↓</span>
+            </div>
+            
+            <div class="module contrast-module">
+                <div class="module-title">对比学习片段挖掘模块 (AICL)</div>
+                
+                <div class="sub-module">
+                    <strong>动作性二值化:</strong>
+                    <div class="feature-shape">aness_np1 = actionness1.cpu().numpy()</div>
+                    <div class="feature-shape">thr1 = percentile(aness_np1, 60, axis=1, keepdims=True)</div>
+                    <div class="feature-shape">aness_bin1 = (aness_np1 > thr1).astype(float32)</div>
+                    <div class="feature-shape">同理处理 actionness2 得到 aness_bin2</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>一致性片段挖掘 (Easy Action / Easy Background):</strong>
+                    <div class="feature-shape">x = aness_bin1 + aness_bin2</div>
+                    <div class="feature-shape">select_idx_act = where(x == 2, 1, 0), select_idx_bg = where(x == 0, 1, 0)</div>
+                    <div class="feature-shape">easy_act = select_topk_embeddings(actionness × select_idx_act, embeddings, k_C)</div>
+                    <div class="feature-shape">easy_bkg = select_topk_embeddings(actionness_rev × select_idx_bg, embeddings, k_C)</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>不一致性片段挖掘 (Hard Action / Hard Background):</strong>
+                    <div class="feature-shape">idx_region_inner = where(x == 1, 1, 0)</div>
+                    <div class="feature-shape">actionness_gate = sigmoid((actionness - 0.4) × 5.0) # 软门控</div>
+                    <div class="feature-shape">hard_act = select_topk_embeddings(aness_region_inner, embeddings, k_I, retain_random=0.2)</div>
+                    <div class="feature-shape">hard_bkg = select_topk_embeddings(aness_region_outer, embeddings, k_I, retain_random=0.2)</div>
+                </div>
+                
+                <div class="sub-module">
+                    <strong>Top-k 采样函数:</strong>
+                    <div class="feature-shape">select_topk_embeddings(scores, embeddings, k, retain_random=0.2)</div>
+                    <div class="feature-shape">k_top = int(k × (1 - retain_random)), k_rand = k - k_top</div>
+                    <div class="feature-shape">sort(scores, descending=True) → top-k indices + random indices</div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 30px; padding: 15px; background-color: #e8f4fd; border-radius: 5px;">
+            <h3>模型核心特点:</h3>
+            <ul>
+                <li><strong>四专家架构:</strong> RGB、Flow、Mixed1、Mixed2 四个专家并行处理特征</li>
+                <li><strong>动态门控:</strong> 基于输入特征动态计算各专家的时序权重</li>
+                <li><strong>多分支融合:</strong> 保留多个动作性评估分支以丰富特征表示</li>
+                <li><strong>对比学习:</strong> 基于动作性评分的智能片段挖掘策略</li>
+                <li><strong>消融友好:</strong> 模块化设计便于进行组件效果验证</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

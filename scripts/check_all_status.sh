@@ -63,6 +63,10 @@ echo "当前 Python 进程:"
 ps aux | grep python | grep -v grep | grep -v check_all_status
 
 echo ""
+echo "GPU 使用情况:"
+nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null || echo "nvidia-smi 未找到或无GPU"
+
+echo ""
 echo "日志文件大小:"
 for log in logs/train_*.log; do
     if [ -f "$log" ]; then
