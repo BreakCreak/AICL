@@ -15,7 +15,7 @@ from inference_thumos import inference
 from utils import misc_utils
 from torch.utils.data import Dataset
 from dataset.thumos_features import ThumosFeature
-from utils.loss import CrossEntropyLoss, GeneralizedCE
+from utils.loss import CrossEntropyLoss, GeneralizedCE, GateConstraintLoss, EntropyRegularizationLoss
 from config.config_thumos import Config, parse_args, class_dict
 import importlib
 from models.model import AICL
@@ -145,6 +145,9 @@ class ThumosTrainer():
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr, betas=(0.9, 0.999), weight_decay=0.0005)
         self.criterion = CrossEntropyLoss()
         self.Lgce = GeneralizedCE(q=self.config.q_val)
+        # 添加门控约束损失和熵正则化损失
+        self.gate_constraint_loss = GateConstraintLoss(weight=0.1)
+        self.entropy_reg_loss = EntropyRegularizationLoss(weight=0.01)
 
         # parameters
         self.best_mAP = -1 # init
@@ -178,7 +181,7 @@ class ThumosTrainer():
         return torch.cat(cls_agnostic_gt, dim=0)  # B, 1, num_segments
 
 
-    def calculate_all_losses1(self, contrast_pairs, contrast_pairs_r, contrast_pairs_f, cas_top, label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2, gate_weights):
+    def calculate_all_losses1(self, contrast_pairs, contrast_pairs_r, contrast_pairs_f, cas_top, label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2, gate_weights, cas_rgb=None, cas_flow=None, cas_mixed1=None, cas_mixed2=None, performance_penalty=None):
         self.contrastive_criterion = ContrastiveLoss()
         loss_contrastive = self.contrastive_criterion(contrast_pairs) + self.contrastive_criterion(contrast_pairs_r) + self.contrastive_criterion(contrast_pairs_f)
 
@@ -188,8 +191,19 @@ class ThumosTrainer():
         modality_consistent_loss = 0.5 * F.mse_loss(action_flow, action_rgb) + 0.5 * F.mse_loss(action_rgb, action_flow)
         action_consistent_loss = 0.1 * F.mse_loss(actionness1, actionness2) + 0.1 * F.mse_loss(actionness2, actionness1)
 
+        # 门控约束损失 - 如果提供了分支CAS输出，则计算门控约束损失
+        gate_constraint_loss = 0
+        if cas_rgb is not None and cas_flow is not None and cas_mixed1 is not None and cas_mixed2 is not None:
+            cas_branches = [cas_rgb, cas_flow, cas_mixed1, cas_mixed2]
+            # 重新计算cas_top用于门控约束，因为它需要完整的CAS而不是top-k后的
+            cas_full = torch.softmax(contrast_pairs['CA'].mean(dim=1, keepdim=True) if 'CA' in contrast_pairs else cas_top.unsqueeze(1), dim=-1) if cas_top.dim() == 2 else torch.softmax(cas_top, dim=-1)
+            gate_constraint_loss = self.gate_constraint_loss(cas_top.unsqueeze(1) if cas_top.dim() == 2 else cas_top, cas_branches)
+        
+        # 门控权重熵正则化损失
+        entropy_reg_loss = self.entropy_reg_loss(gate_weights)
+
         # 提高高IoU阈值下的性能，增加对比损失权重和模态一致性损失
-        cost = base_loss + class_agnostic_loss + 5 * modality_consistent_loss + 0.01 * loss_contrastive + 0.1 * action_consistent_loss
+        cost = base_loss + class_agnostic_loss + 5 * modality_consistent_loss + 0.01 * loss_contrastive + 0.1 * action_consistent_loss + gate_constraint_loss + entropy_reg_loss
 
         return cost
 
@@ -213,7 +227,16 @@ class ThumosTrainer():
 
 
     def forward_pass(self, _data):
-        cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights = self.net(_data)
+        # 检查模型返回值数量
+        result = self.net(_data)
+        if len(result) == 11:  # 原来的返回值数量
+            cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights = result
+            # 设置默认值
+            cas_rgb = cas_flow = cas_mixed1 = cas_mixed2 = performance_penalty = None
+        else:  # 新的返回值数量，包含分支CAS和性能惩罚
+            cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights, performance_penalty = result
+            # 当前模型返回值中不包含各分支的CAS，但我们可以从performance_penalty推断出来
+            cas_rgb = cas_flow = cas_mixed1 = cas_mixed2 = None
 
         # 增加一个维度以避免 permute 错误
         action_flow = action_flow.unsqueeze(1)  # 将 [B, T] 转换为 [B, 1, T]
@@ -228,7 +251,7 @@ class ThumosTrainer():
         _, topk_indices = torch.topk(combined_cas, self.config.num_segments // 8, dim=1)
         cas_top = torch.mean(torch.gather(cas, 1, topk_indices), dim=1)
 
-        return cas_top, topk_indices, action_flow.squeeze(1), action_rgb.squeeze(1), contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights
+        return cas_top, topk_indices, action_flow.squeeze(1), action_rgb.squeeze(1), contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights, cas_rgb, cas_flow, cas_mixed1, cas_mixed2, performance_penalty
 
 
     def train(self):
@@ -247,13 +270,13 @@ class ThumosTrainer():
                 self.optimizer.zero_grad()
 
                 # forward pass
-                cas_top, topk_indices, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights = self.forward_pass(_data)
+                cas_top, topk_indices, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights, cas_rgb, cas_flow, cas_mixed1, cas_mixed2, performance_penalty = self.forward_pass(_data)
 
                 # calcualte pseudo target
                 cls_agnostic_gt = self.calculate_pesudo_target(batch_size, _label, topk_indices)
 
                 # losses
-                cost = self.calculate_all_losses1(contrast_pairs, contrast_pairs_r, contrast_pairs_f, cas_top, _label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2, gate_weights)
+                cost = self.calculate_all_losses1(contrast_pairs, contrast_pairs_r, contrast_pairs_f, cas_top, _label, action_flow, action_rgb, cls_agnostic_gt, actionness1, actionness2, gate_weights, cas_rgb, cas_flow, cas_mixed1, cas_mixed2, performance_penalty)
 
                 cost.backward()
                 self.optimizer.step()

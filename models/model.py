@@ -63,6 +63,12 @@ class BaseModel(nn.Module):
         emb_mixed1 = self.action_module_mixed1(0.25 * input[:, :1024, :] + 0.75 * input[:, 1024:, :])
         emb_mixed2 = self.action_module_mixed2(0.75 * input[:, :1024, :] + 0.25 * input[:, 1024:, :])
 
+        # 单分支分类结果用于性能评估
+        cas_rgb = self.cls(emb_rgb).permute(0, 2, 1)
+        cas_flow = self.cls(emb_flow).permute(0, 2, 1)
+        cas_mixed1 = self.cls(emb_mixed1).permute(0, 2, 1)
+        cas_mixed2 = self.cls(emb_mixed2).permute(0, 2, 1)
+        
         # 将RGB、Flow和两个混合分支的特征拼接用于门控
         combined_for_gating = torch.cat([emb_rgb, emb_flow, emb_mixed1, emb_mixed2], dim=1)
         
@@ -93,7 +99,8 @@ class BaseModel(nn.Module):
         actionness2 = (0.6 * action_mixed1 + 0.4 * action_mixed2 + 0.5 * action_rgb + 0.5 * action_flow) / 4
         actionness2 = 0.8 * actionness2 + 0.2 * low_action
 
-        return cas, action_flow, action_rgb, action_mixed1, action_mixed2, actionness1, actionness2, emb, emb_flow, emb_rgb, gate_weights
+        # 返回单分支cas结果用于分支性能评估
+        return cas, action_flow, action_rgb, action_mixed1, action_mixed2, actionness1, actionness2, emb, emb_flow, emb_rgb, gate_weights, [cas_rgb, cas_flow, cas_mixed1, cas_mixed2]
 
 
 # ===================== AICL =====================
@@ -216,13 +223,43 @@ class AICL(nn.Module):
 
         return hard_act, hard_bkg
 
+    def compute_branch_performance_penalty(self, cas_main, cas_rgb, cas_flow, cas_mixed1, cas_mixed2, labels):
+        """
+        计算各分支与主分类器之间的性能差异，用于门控约束
+        """
+        # 将labels扩展为序列长度，以便与CAS结果比较
+        batch_size, seq_len, num_classes = cas_main.shape
+        
+        # 计算各分支与主分类器的差异作为性能指标
+        perf_rgb = F.mse_loss(cas_rgb, cas_main.detach(), reduction='none')
+        perf_flow = F.mse_loss(cas_flow, cas_main.detach(), reduction='none')
+        perf_mixed1 = F.mse_loss(cas_mixed1, cas_main.detach(), reduction='none')
+        perf_mixed2 = F.mse_loss(cas_mixed2, cas_main.detach(), reduction='none')
+        
+        # 计算平均性能差异
+        avg_perf_rgb = perf_rgb.mean(dim=[1, 2])  # [batch_size]
+        avg_perf_flow = perf_flow.mean(dim=[1, 2])
+        avg_perf_mixed1 = perf_mixed1.mean(dim=[1, 2])
+        avg_perf_mixed2 = perf_mixed2.mean(dim=[1, 2])
+        
+        # 归一化性能分数（越小表示性能越好）
+        branch_perfs = torch.stack([avg_perf_rgb, avg_perf_flow, avg_perf_mixed1, avg_perf_mixed2], dim=1)
+        
+        # 转换为性能权重（性能越差，权重越大，需要更多惩罚）
+        # 使用softmax将性能差异转换为权重分布
+        performance_weights = F.softmax(branch_perfs, dim=1)
+        
+        return performance_weights
+
     def forward(self, x):
         num_segments = x.shape[1]
         k_C = num_segments // self.r_C
         k_I = num_segments // self.r_I
 
-        cas, action_flow, action_rgb, action_mixed1, action_mixed2, actionness1, actionness2, embedding, embedding_flow, embedding_rgb, gate_weights = self.model(
+        cas, action_flow, action_rgb, action_mixed1, action_mixed2, actionness1, actionness2, embedding, embedding_flow, embedding_rgb, gate_weights, cas_branches = self.model(
             x)
+        
+        cas_rgb, cas_flow, cas_mixed1, cas_mixed2 = cas_branches
 
         aness_np1 = actionness1.cpu().detach().numpy()
         thr1 = np.percentile(aness_np1, 60, axis=1, keepdims=True)  # 使用60%分位数替代中位数
@@ -232,6 +269,10 @@ class AICL(nn.Module):
         thr2 = np.percentile(aness_np2, 60, axis=1, keepdims=True)  # 使用60%分位数替代中位数
         aness_bin2 = (aness_np2 > thr2).astype(np.float32)  # 改为分位数二值化
 
+        # 计算分支性能惩罚权重
+        # 这里我们模拟标签用于性能评估（在实际训练中，这部分会与标签一起计算）
+        performance_penalty = self.compute_branch_performance_penalty(cas, cas_rgb, cas_flow, cas_mixed1, cas_mixed2, None)
+        
         # mining
         CA, CB = self.consistency_snippets_mining(aness_bin1, aness_bin2, actionness1, embedding, k_C)
         IA, IB = self.inconsistency_snippets_mining(aness_bin1, aness_bin2, actionness1, embedding, k_I)
@@ -246,5 +287,5 @@ class AICL(nn.Module):
         contrast_pairs_r = {'CA': CAr, 'CB': CBr, 'IA': IAr, 'IB': IBr}
         contrast_pairs_f = {'CA': CAf, 'CB': CBf, 'IA': IAf, 'IB': IBf}
 
-        return cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights
+        return cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights, performance_penalty
 
