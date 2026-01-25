@@ -40,9 +40,9 @@ class BaseModel(nn.Module):
         )
         self.cls_mixed2 = nn.Conv1d(512, 1, 1)
 
-        # 门控模块
+        # 门控模块 - 使用RGB、Flow和两个混合分支的特征进行门控
         self.gate_module = nn.Sequential(
-            nn.Conv1d(len_feature, 512, 3, padding=1),
+            nn.Conv1d(512 * 4, 512, 3, padding=1),  # 4个512维特征拼接
             nn.ReLU(),
             nn.Conv1d(512, 4, 1),
             nn.Softmax(dim=1)
@@ -63,8 +63,11 @@ class BaseModel(nn.Module):
         emb_mixed1 = self.action_module_mixed1(0.25 * input[:, :1024, :] + 0.75 * input[:, 1024:, :])
         emb_mixed2 = self.action_module_mixed2(0.75 * input[:, :1024, :] + 0.25 * input[:, 1024:, :])
 
+        # 将RGB、Flow和两个混合分支的特征拼接用于门控
+        combined_for_gating = torch.cat([emb_rgb, emb_flow, emb_mixed1, emb_mixed2], dim=1)
+        
         # 门控
-        gate_weights = self.gate_module(input)
+        gate_weights = self.gate_module(combined_for_gating)
         if inference:
             # 软化门控
             gate_weights = gate_weights * 0.7 + 0.3 / 4
