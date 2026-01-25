@@ -43,7 +43,11 @@ def inference(net, config, test_loader, model_file=None):
             _label = _label.cuda()
 
             # FORWARD PASS
-            cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights = net(_data)
+            result = net(_data)
+            if len(result) == 11:  # 旧的返回值数量
+                cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights = result
+            else:  # 新的返回值数量，包含性能惩罚
+                cas, action_flow, action_rgb, contrast_pairs, contrast_pairs_r, contrast_pairs_f, actionness1, actionness2, aness_bin1, aness_bin2, gate_weights, performance_penalty = result
 
             # 使用新的 instance_selection_function2 来融合更多分支
             combined_cas = misc_utils.instance_selection_function2(torch.softmax(cas.detach(), -1),  # cas_r
